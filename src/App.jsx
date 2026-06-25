@@ -30,7 +30,6 @@ function App() {
   const [partnership, setPartnership] = useState({ runs: 0, balls: 0 });
   const [thisOver, setThisOver] = useState([]); 
 
-  // --- NEW: BOWLER QUOTA STATE ---
   const [needsBowlerSelection, setNeedsBowlerSelection] = useState(false);
   const [previousBowler, setPreviousBowler] = useState(null);
 
@@ -39,9 +38,52 @@ function App() {
   const [isMuted, setIsMuted] = useState(false); 
   const commentaryEndRef = useRef(null);
 
+  // --- NEW: SAVE GAME DETECTION STATE ---
+  const [savedGameExists, setSavedGameExists] = useState(false);
+
+  // 1. Check for save file when the app first loads
   useEffect(() => {
+    if (localStorage.getItem('cricverseProSave')) {
+      setSavedGameExists(true);
+    }
     commentaryEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [commentaryFeed]);
+
+  // 2. AUTO-SAVE ENGINE: Triggers every time core state changes!
+  useEffect(() => {
+    if (appState !== 'config') {
+      const gameState = {
+        appState, team1Name, team2Name, team1, team2, availablePlayers,
+        tossWinner, innings, score1, wickets1, balls1, score2, wickets2, balls2,
+        playerStats, commentaryFeed, currentBatter, currentBowler, previousBowler,
+        partnership, thisOver, needsBowlerSelection
+      };
+      localStorage.setItem('cricverseProSave', JSON.stringify(gameState));
+    }
+  }, [appState, team1Name, team2Name, team1, team2, availablePlayers, tossWinner, innings, score1, wickets1, balls1, score2, wickets2, balls2, playerStats, commentaryFeed, currentBatter, currentBowler, previousBowler, partnership, thisOver, needsBowlerSelection]);
+
+  // 3. LOAD GAME FUNCTION
+  const loadGame = () => {
+    const saved = localStorage.getItem('cricverseProSave');
+    if (saved) {
+      const data = JSON.parse(saved);
+      setAppState(data.appState); setTeam1Name(data.team1Name); setTeam2Name(data.team2Name);
+      setTeam1(data.team1); setTeam2(data.team2); setAvailablePlayers(data.availablePlayers);
+      setTossWinner(data.tossWinner); setInnings(data.innings); 
+      setScore1(data.score1); setWickets1(data.wickets1); setBalls1(data.balls1);
+      setScore2(data.score2); setWickets2(data.wickets2); setBalls2(data.balls2);
+      setPlayerStats(data.playerStats); setCommentaryFeed(data.commentaryFeed);
+      setCurrentBatter(data.currentBatter); setCurrentBowler(data.currentBowler);
+      setPreviousBowler(data.previousBowler); setPartnership(data.partnership);
+      setThisOver(data.thisOver); setNeedsBowlerSelection(data.needsBowlerSelection);
+    }
+  };
+
+  // 4. RESET MATCH FUNCTION
+  const startNewMatch = () => {
+    localStorage.removeItem('cricverseProSave'); // Delete the save file!
+    window.location.reload();
+  };
 
   const playAudio = (type) => {
     if (isMuted) return;
@@ -78,15 +120,10 @@ function App() {
     [...finalBattingTeam, ...finalBowlingTeam].forEach(p => {
       initialStats[p.id] = { runs: 0, ballsFaced: 0, wickets: 0, runsGiven: 0, ballsBowled: 0 };
     });
-    setPlayerStats(initialStats);
-    setPartnership({ runs: 0, balls: 0 });
-    setThisOver([]);
+    setPlayerStats(initialStats); setPartnership({ runs: 0, balls: 0 }); setThisOver([]);
     setCurrentBatter(finalBattingTeam.find(p => p.role === 'Batter' || p.role === 'All-Rounder') || finalBattingTeam[0]);
     
-    // START OF INNINGS: Force Bowler Selection
-    setCurrentBowler(null);
-    setPreviousBowler(null);
-    setNeedsBowlerSelection(true);
+    setCurrentBowler(null); setPreviousBowler(null); setNeedsBowlerSelection(true);
     setAppState('match');
   };
 
@@ -97,10 +134,7 @@ function App() {
     setThisOver([]);
     setCurrentBatter(team2.find(p => p.role === 'Batter' || p.role === 'All-Rounder') || team2[0]);
     
-    // START OF INNINGS 2: Force Bowler Selection
-    setCurrentBowler(null);
-    setPreviousBowler(null);
-    setNeedsBowlerSelection(true);
+    setCurrentBowler(null); setPreviousBowler(null); setNeedsBowlerSelection(true);
     setAppState('match');
   };
 
@@ -188,7 +222,6 @@ function App() {
       if (remainingPlayers.length > 0) setCurrentBatter(remainingPlayers[Math.floor(Math.random() * remainingPlayers.length)]);
     }
 
-    // --- CHECK FOR END OF OVER ---
     const isEndOfInnings = currentWickets >= 10 || (innings === 2 && currentScore > score1);
     if (!isExtra && currentBalls > 0 && currentBalls % 6 === 0 && !isEndOfInnings) {
       setPreviousBowler(currentBowler);
@@ -215,7 +248,6 @@ function App() {
     
     while (tempWickets < 10) {
       if (innings === 2 && tempScore > score1) break; 
-      
       const { result, isWicket, isExtra, totalRunsThisBall, batterRuns } = processDelivery();
 
       if (!isExtra) tempBalls++;
@@ -230,14 +262,12 @@ function App() {
         if (remainingPlayers.length > 0) tempBatter = remainingPlayers[Math.floor(Math.random() * remainingPlayers.length)];
       }
 
-      // --- AUTO ROTATE BOWLERS AT END OF OVER ---
       if (!isExtra && tempBalls > 0 && tempBalls % 6 === 0 && tempWickets < 10 && !(innings === 2 && tempScore > score1)) {
         const bowlingTeam = innings === 1 ? team2 : team1;
         const validBowlers = bowlingTeam.filter(p => p.id !== tempBowler.id && (tempStats[p.id]?.ballsBowled || 0) < 24);
-        
         let nextBowlers = validBowlers.filter(p => p.role === 'Bowler' || p.role === 'All-Rounder');
-        if (nextBowlers.length === 0) nextBowlers = validBowlers; // Fallback if out of real bowlers
-        if (nextBowlers.length === 0) nextBowlers = bowlingTeam.filter(p => p.id !== tempBowler.id); // Absolute safety fallback
+        if (nextBowlers.length === 0) nextBowlers = validBowlers; 
+        if (nextBowlers.length === 0) nextBowlers = bowlingTeam.filter(p => p.id !== tempBowler.id); 
         
         tempPrevBowler = tempBowler;
         tempBowler = nextBowlers[Math.floor(Math.random() * nextBowlers.length)];
@@ -294,7 +324,20 @@ function App() {
                 <input type="text" value={team2Name} onChange={(e) => setTeam2Name(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white font-bold focus:border-cyan-500 focus:outline-none transition-colors" />
               </div>
             </div>
-            <button onClick={() => setAppState('draft')} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-black px-8 py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]">PROCEED TO DRAFT ➔</button>
+            
+            <button onClick={() => setAppState('draft')} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-black px-8 py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+              PROCEED TO DRAFT ➔
+            </button>
+
+            {/* --- NEW RESUME BUTTON --- */}
+            {savedGameExists && (
+              <button 
+                onClick={loadGame} 
+                className="w-full mt-4 bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-cyan-500/30 font-black px-8 py-4 rounded-xl transition-all shadow-lg"
+              >
+                🔄 RESUME SAVED MATCH
+              </button>
+            )}
           </div>
         )}
 
@@ -395,15 +438,12 @@ function App() {
                 </div>
               </div>
 
-              {/* --- DYNAMIC ACTION PANEL --- */}
               {innings === 1 && activeWickets >= 10 ? (
                 <button onClick={() => setAppState('inningsBreak')} className="w-full py-6 rounded-2xl text-2xl font-black uppercase tracking-widest transition-all shadow-xl bg-cyan-500 text-slate-950 hover:bg-cyan-400 animate-pulse">PROCEED TO INNINGS BREAK ➔</button>
               ) : needsBowlerSelection ? (
-                // --- NEW: BOWLER SELECTION MODAL ---
                 <div className="bg-slate-900 border border-emerald-500/30 p-6 rounded-3xl shadow-2xl animate-fade-in ring-2 ring-emerald-500/20">
                   <h3 className="text-emerald-400 font-bold uppercase tracking-widest mb-4 flex items-center justify-between">
-                    <span>Select Bowler for Next Over</span>
-                    <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded">Quota: 4 Overs Max</span>
+                    <span>Select Bowler for Next Over</span><span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded">Quota: 4 Overs</span>
                   </h3>
                   <div className="grid grid-cols-2 gap-3">
                     {fieldingTeam.map(p => {
@@ -414,21 +454,12 @@ function App() {
                       const disabled = isMaxedOut || isPrevBowler;
 
                       return (
-                        <button 
-                          key={p.id} 
-                          disabled={disabled}
-                          onClick={() => {
-                            setCurrentBowler(p);
-                            setNeedsBowlerSelection(false);
-                            setThisOver([]); // Reset the visual over tracker
-                          }}
-                          className={`p-3 rounded-xl flex flex-col items-start transition-all border
-                            ${disabled ? 'bg-slate-950 border-slate-800 opacity-50 cursor-not-allowed' : 'bg-slate-800 border-slate-700 hover:bg-emerald-500 hover:text-black hover:border-emerald-400'}`}
+                        <button key={p.id} disabled={disabled}
+                          onClick={() => { setCurrentBowler(p); setNeedsBowlerSelection(false); setThisOver([]); }}
+                          className={`p-3 rounded-xl flex flex-col items-start transition-all border ${disabled ? 'bg-slate-950 border-slate-800 opacity-50 cursor-not-allowed' : 'bg-slate-800 border-slate-700 hover:bg-emerald-500 hover:text-black hover:border-emerald-400'}`}
                         >
                           <span className="font-bold">{p.name}</span>
-                          <span className="text-xs mt-1 font-mono">
-                            {isMaxedOut ? '🔒 Quota Reached' : isPrevBowler ? '⏳ Resting' : `${oversBowled}/4 Overs Bowled`}
-                          </span>
+                          <span className="text-xs mt-1 font-mono">{isMaxedOut ? '🔒 Quota Reached' : isPrevBowler ? '⏳ Resting' : `${oversBowled}/4 Overs`}</span>
                         </button>
                       )
                     })}
@@ -519,7 +550,13 @@ function App() {
                 </div>
               </div>
             </div>
-            <div className="text-center"><button onClick={() => window.location.reload()} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-4 rounded-xl transition-colors border border-slate-700 shadow-xl">↻ Start New Match</button></div>
+            
+            {/* --- UPDATED TO WIPE SAVE FILE ON RESTART --- */}
+            <div className="text-center">
+              <button onClick={startNewMatch} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-4 rounded-xl transition-colors border border-slate-700 shadow-xl">
+                ↻ Start New Match
+              </button>
+            </div>
           </div>
         )}
       </main>
