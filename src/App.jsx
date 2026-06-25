@@ -5,10 +5,19 @@ import { playerDatabase } from './players';
 const GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY_HERE';
 
 function App() {
-  const [appState, setAppState] = useState('config'); 
+  const [appState, setAppState] = useState('config'); // config, draft, toss, match, inningsBreak, postMatch
+  
+  // --- NEW: CUSTOM TEAM NAMES ---
+  const [team1Name, setTeam1Name] = useState('Mumbai Indians');
+  const [team2Name, setTeam2Name] = useState('Chennai Super Kings');
+  
   const [team1, setTeam1] = useState([]);
   const [team2, setTeam2] = useState([]);
   const [availablePlayers, setAvailablePlayers] = useState(playerDatabase);
+
+  // --- NEW: TOSS STATE ---
+  const [tossWinner, setTossWinner] = useState(null);
+  const [isFlipping, setIsFlipping] = useState(false);
 
   const [innings, setInnings] = useState(1);
   const [score1, setScore1] = useState(0);
@@ -22,8 +31,6 @@ function App() {
   const [commentaryFeed, setCommentaryFeed] = useState([]);
   const [currentBatter, setCurrentBatter] = useState(null);
   const [currentBowler, setCurrentBowler] = useState(null);
-  
-  // --- NEW: ADVANCED STATS TRACKING ---
   const [partnership, setPartnership] = useState({ runs: 0, balls: 0 });
   const [thisOver, setThisOver] = useState([]); 
 
@@ -50,17 +57,44 @@ function App() {
     setAvailablePlayers(availablePlayers.filter(p => p.id !== player.id));
   };
 
-  const startMatch = () => {
-    if (team1.length === 0 || team2.length === 0) return alert("Draft players first!");
+  // --- NEW: COIN TOSS LOGIC ---
+  const flipCoin = () => {
+    setIsFlipping(true);
+    setTimeout(() => {
+      const winner = Math.random() > 0.5 ? team1Name : team2Name;
+      setTossWinner(winner);
+      setIsFlipping(false);
+    }, 1500);
+  };
+
+  const handleTossChoice = (choice) => {
+    // If the toss winner chooses to BOWL, we swap the teams so Team 2 becomes the batting team (Team 1 internally)
+    let finalBattingTeam = team1;
+    let finalBowlingTeam = team2;
+    let finalBattingName = team1Name;
+    let finalBowlingName = team2Name;
+
+    if ((tossWinner === team1Name && choice === 'Bowl') || (tossWinner === team2Name && choice === 'Bat')) {
+      finalBattingTeam = team2;
+      finalBowlingTeam = team1;
+      finalBattingName = team2Name;
+      finalBowlingName = team1Name;
+      
+      setTeam1(team2);
+      setTeam2(team1);
+      setTeam1Name(team2Name);
+      setTeam2Name(team1Name);
+    }
+
     const initialStats = {};
-    [...team1, ...team2].forEach(p => {
+    [...finalBattingTeam, ...finalBowlingTeam].forEach(p => {
       initialStats[p.id] = { runs: 0, ballsFaced: 0, wickets: 0, runsGiven: 0, ballsBowled: 0 };
     });
     setPlayerStats(initialStats);
     setPartnership({ runs: 0, balls: 0 });
     setThisOver([]);
-    setCurrentBatter(team1.find(p => p.role === 'Batter' || p.role === 'All-Rounder') || team1[0]);
-    setCurrentBowler(team2.find(p => p.role === 'Bowler' || p.role === 'All-Rounder') || team2[0]);
+    setCurrentBatter(finalBattingTeam.find(p => p.role === 'Batter' || p.role === 'All-Rounder') || finalBattingTeam[0]);
+    setCurrentBowler(finalBowlingTeam.find(p => p.role === 'Bowler' || p.role === 'All-Rounder') || finalBowlingTeam[0]);
     setAppState('match');
   };
 
@@ -76,7 +110,9 @@ function App() {
 
   const generateCommentary = async (result, isWicket, isExtra, batter, bowler) => {
     if (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') return `[API KEY MISSING] Add key at top of App.jsx!`;
-    let prompt = `You are an energetic T20 cricket commentator. Write ONE short, thrilling sentence of live commentary. Bowler: ${bowler.name}. Batter: ${batter.name}. `;
+    
+    // Feed the custom team names to the AI!
+    let prompt = `You are a live T20 cricket commentator. Match: ${team1Name} vs ${team2Name}. Write ONE short, thrilling sentence of live commentary. Bowler: ${bowler.name}. Batter: ${batter.name}. `;
     
     if (isWicket) prompt += `Outcome: OUT! It's a spectacular wicket. Make it dramatic.`;
     else if (result === 'Wd') prompt += `Outcome: Wide ball! Terrible line by the bowler.`;
@@ -86,7 +122,7 @@ function App() {
     else if (result === 0) prompt += `Outcome: Dot ball. Good defense or miss.`;
     else prompt += `Outcome: ${result} run(s) taken.`;
     
-    if (innings === 2) prompt += ` Context: Team 2 is chasing a target of ${score1 + 1}.`;
+    if (innings === 2) prompt += ` Context: ${team2Name} is chasing a target of ${score1 + 1}.`;
 
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
@@ -100,16 +136,13 @@ function App() {
     } catch (error) { return `[NETWORK ERROR] Could not reach AI server.`; }
   };
 
-  const processDelivery = (isAutoSim = false) => {
-    // --- NEW ENGINE ODDS WITH EXTRAS ---
+  const processDelivery = () => {
     const outcomes = [0, 1, 1, 2, 4, 4, 6, 'W', 'Wd', 'Nb'];
     const result = outcomes[Math.floor(Math.random() * outcomes.length)];
-    
     const isWicket = result === 'W';
     const isExtra = result === 'Wd' || result === 'Nb';
     const totalRunsThisBall = isWicket ? 0 : isExtra ? 1 : result;
-    const batterRuns = isExtra ? 0 : totalRunsThisBall; // Batters don't get runs for extras
-
+    const batterRuns = isExtra ? 0 : totalRunsThisBall; 
     return { result, isWicket, isExtra, totalRunsThisBall, batterRuns };
   };
 
@@ -123,52 +156,31 @@ function App() {
 
     const { result, isWicket, isExtra, totalRunsThisBall, batterRuns } = processDelivery();
 
-    // VFX & AUDIO
     if (isWicket) { setVfx('explosion'); playAudio('out'); }
-    else if (result === 6 || result === 4) {
-      setVfx('rocket'); playAudio('hit'); setTimeout(() => playAudio('cheer'), 300);
-    } 
+    else if (result === 6 || result === 4) { setVfx('rocket'); playAudio('hit'); setTimeout(() => playAudio('cheer'), 300); } 
     else if (totalRunsThisBall > 0 && !isExtra) { playAudio('hit'); }
 
-    // --- OVER TRACKER LOGIC ---
     let newThisOver = [...thisOver];
-    // If the previous array already had 6 legal deliveries, clear it for the new over
-    if (newThisOver.filter(r => r !== 'Wd' && r !== 'Nb').length === 6) {
-      newThisOver = [];
-    }
+    if (newThisOver.filter(r => r !== 'Wd' && r !== 'Nb').length === 6) newThisOver = [];
     newThisOver.push(result);
     setThisOver(newThisOver);
 
-    // --- PARTNERSHIP LOGIC ---
     setPartnership(prev => {
       if (isWicket) return { runs: 0, balls: 0 };
       return { runs: prev.runs + totalRunsThisBall, balls: prev.balls + (isExtra ? 0 : 1) };
     });
 
-    // Update Team Score
     const currentBalls = (innings === 1 ? balls1 : balls2) + (isExtra ? 0 : 1);
     const currentScore = (innings === 1 ? score1 : score2) + totalRunsThisBall;
     const currentWickets = (innings === 1 ? wickets1 : wickets2) + (isWicket ? 1 : 0);
 
-    if (innings === 1) {
-      if (isWicket) setWickets1(currentWickets); else setScore1(currentScore);
-      setBalls1(currentBalls);
-    } else {
-      if (isWicket) setWickets2(currentWickets); else setScore2(currentScore);
-      setBalls2(currentBalls);
-    }
+    if (innings === 1) { if (isWicket) setWickets1(currentWickets); else setScore1(currentScore); setBalls1(currentBalls); } 
+    else { if (isWicket) setWickets2(currentWickets); else setScore2(currentScore); setBalls2(currentBalls); }
 
     setPlayerStats(prev => {
       const newStats = structuredClone(prev);
-      if (newStats[currentBatter.id]) {
-        newStats[currentBatter.id].runs += batterRuns;
-        if (!isExtra) newStats[currentBatter.id].ballsFaced += 1;
-      }
-      if (newStats[currentBowler.id]) {
-        newStats[currentBowler.id].runsGiven += totalRunsThisBall;
-        if (!isExtra) newStats[currentBowler.id].ballsBowled += 1;
-        if (isWicket) newStats[currentBowler.id].wickets += 1;
-      }
+      if (newStats[currentBatter.id]) { newStats[currentBatter.id].runs += batterRuns; if (!isExtra) newStats[currentBatter.id].ballsFaced += 1; }
+      if (newStats[currentBowler.id]) { newStats[currentBowler.id].runsGiven += totalRunsThisBall; if (!isExtra) newStats[currentBowler.id].ballsBowled += 1; if (isWicket) newStats[currentBowler.id].wickets += 1; }
       return newStats;
     });
 
@@ -178,12 +190,7 @@ function App() {
     setCommentaryFeed(prev => {
       const newFeed = [...prev];
       newFeed.pop(); 
-      newFeed.push({ 
-        ball: currentBalls, 
-        text: aiText, 
-        runs: result, 
-        type: isWicket ? 'wicket' : isExtra ? 'extra' : (result === 6 || result === 4) ? 'boundary' : 'normal' 
-      });
+      newFeed.push({ ball: currentBalls, text: aiText, runs: result, type: isWicket ? 'wicket' : isExtra ? 'extra' : (result === 6 || result === 4) ? 'boundary' : 'normal' });
       return newFeed;
     });
 
@@ -218,15 +225,8 @@ function App() {
       if (!isExtra) tempBalls++;
       if (isWicket) tempWickets++; else tempScore += totalRunsThisBall;
 
-      if (tempStats[tempBatter.id]) {
-        tempStats[tempBatter.id].runs += batterRuns;
-        if (!isExtra) tempStats[tempBatter.id].ballsFaced += 1;
-      }
-      if (tempStats[tempBowler.id]) {
-        tempStats[tempBowler.id].runsGiven += totalRunsThisBall;
-        if (!isExtra) tempStats[tempBowler.id].ballsBowled += 1;
-        if (isWicket) tempStats[tempBowler.id].wickets += 1;
-      }
+      if (tempStats[tempBatter.id]) { tempStats[tempBatter.id].runs += batterRuns; if (!isExtra) tempStats[tempBatter.id].ballsFaced += 1; }
+      if (tempStats[tempBowler.id]) { tempStats[tempBowler.id].runsGiven += totalRunsThisBall; if (!isExtra) tempStats[tempBowler.id].ballsBowled += 1; if (isWicket) tempStats[tempBowler.id].wickets += 1; }
 
       if (isWicket && tempWickets < 10) {
         const battingTeam = innings === 1 ? team1 : team2;
@@ -238,9 +238,7 @@ function App() {
     if (innings === 1) { setScore1(tempScore); setWickets1(tempWickets); setBalls1(tempBalls); } 
     else { setScore2(tempScore); setWickets2(tempWickets); setBalls2(tempBalls); }
     
-    setPlayerStats(tempStats);
-    setCurrentBatter(tempBatter);
-    setThisOver([]); // Clear over UI after instant sim
+    setPlayerStats(tempStats); setCurrentBatter(tempBatter); setThisOver([]); 
     setCommentaryFeed(prev => [...prev, { ball: tempBalls, text: `⚡ Innings auto-simulated to completion.`, type: 'normal' }]);
     if (innings === 2 && (tempScore > score1 || tempWickets >= 10)) setAppState('postMatch');
   };
@@ -252,7 +250,7 @@ function App() {
   const legalBalls = activeBalls % 6;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white font-sans overflow-hidden relative">
+    <div className="min-h-screen bg-slate-950 text-white font-sans overflow-hidden relative selection:bg-emerald-500/30">
       {vfx === 'rocket' && <div className="absolute inset-0 pointer-events-none z-50 flex items-center justify-center animate-rocket text-8xl">🚀</div>}
       {vfx === 'explosion' && <div className="absolute inset-0 pointer-events-none z-50 flex items-center justify-center animate-explosion text-9xl">💥</div>}
 
@@ -262,11 +260,9 @@ function App() {
             CRICVERSE <span className="text-white">PRO</span>
           </h1>
           <div className="flex gap-4 items-center">
-            <button onClick={() => setIsMuted(!isMuted)} className="text-2xl hover:scale-110 transition-transform" title={isMuted ? "Unmute" : "Mute"}>
-              {isMuted ? '🔇' : '🔊'}
-            </button>
+            <button onClick={() => setIsMuted(!isMuted)} className="text-2xl hover:scale-110 transition-transform" title={isMuted ? "Unmute" : "Mute"}>{isMuted ? '🔇' : '🔊'}</button>
             <div className="text-sm font-bold bg-emerald-500/20 text-emerald-400 px-4 py-1 rounded-full border border-emerald-500/30">
-              {appState === 'postMatch' ? 'FULL TIME' : appState === 'match' ? `INNINGS ${innings} LIVE` : 'STUDIO SETUP'}
+              {appState.toUpperCase()}
             </div>
           </div>
         </div>
@@ -274,13 +270,49 @@ function App() {
 
       <main className="max-w-6xl mx-auto p-4 lg:p-8">
         
-        {/* --- DRAFT SCREEN --- */}
-        {(appState === 'config' || appState === 'draft') && (
+        {/* --- 1. NEW CONFIG SCREEN --- */}
+        {appState === 'config' && (
+          <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl mt-10 animate-fade-in text-center">
+            <h2 className="text-3xl font-black mb-8 text-white">Match Setup</h2>
+            
+            <div className="space-y-6 mb-8 text-left">
+              <div>
+                <label className="block text-emerald-400 font-bold mb-2 uppercase text-xs tracking-widest">Home Team Name</label>
+                <input 
+                  type="text" 
+                  value={team1Name} 
+                  onChange={(e) => setTeam1Name(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white font-bold focus:border-emerald-500 focus:outline-none transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-cyan-400 font-bold mb-2 uppercase text-xs tracking-widest">Away Team Name</label>
+                <input 
+                  type="text" 
+                  value={team2Name} 
+                  onChange={(e) => setTeam2Name(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white font-bold focus:border-cyan-500 focus:outline-none transition-colors"
+                />
+              </div>
+            </div>
+
+            <button onClick={() => setAppState('draft')} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-black px-8 py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+              PROCEED TO DRAFT ➔
+            </button>
+          </div>
+        )}
+
+        {/* --- 2. UPDATED DRAFT SCREEN --- */}
+        {appState === 'draft' && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold text-white">Pre-Match Draft</h2>
-              <button onClick={startMatch} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-8 py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-                ENTER STADIUM ➔
+              {/* Changed button to go to Toss instead of Match */}
+              <button onClick={() => {
+                if (team1.length === 0 || team2.length === 0) return alert("Draft players first!");
+                setAppState('toss');
+              }} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-8 py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+                PROCEED TO TOSS ➔
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -292,8 +324,8 @@ function App() {
                       <span className="text-xs text-slate-400 ml-2 bg-slate-950 px-2 py-1 rounded">{p.role}</span>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => draftPlayer(p, 1)} className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded font-bold hover:bg-emerald-500 hover:text-black">T1</button>
-                      <button onClick={() => draftPlayer(p, 2)} className="bg-cyan-500/20 text-cyan-400 px-3 py-1 rounded font-bold hover:bg-cyan-500 hover:text-black">T2</button>
+                      <button onClick={() => draftPlayer(p, 1)} className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded font-bold hover:bg-emerald-500 hover:text-black">{team1Name}</button>
+                      <button onClick={() => draftPlayer(p, 2)} className="bg-cyan-500/20 text-cyan-400 px-3 py-1 rounded font-bold hover:bg-cyan-500 hover:text-black">{team2Name}</button>
                     </div>
                   </div>
                 ))}
@@ -302,7 +334,45 @@ function App() {
           </div>
         )}
 
-        {/* --- LIVE MATCH DASHBOARD --- */}
+        {/* --- 3. NEW COIN TOSS SCREEN --- */}
+        {appState === 'toss' && (
+          <div className="max-w-2xl mx-auto bg-slate-900 border border-slate-800 p-12 rounded-3xl shadow-2xl mt-10 animate-fade-in text-center">
+            <h2 className="text-4xl font-black mb-8 text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">THE COIN TOSS</h2>
+            
+            <div className="flex justify-center items-center gap-8 mb-12">
+              <div className="text-xl font-bold text-emerald-400">{team1Name}</div>
+              <div className="text-slate-500 font-black italic">VS</div>
+              <div className="text-xl font-bold text-cyan-400">{team2Name}</div>
+            </div>
+
+            {!tossWinner ? (
+              <button 
+                onClick={flipCoin} 
+                disabled={isFlipping}
+                className={`w-40 h-40 rounded-full mx-auto flex items-center justify-center text-4xl font-black transition-all border-4 
+                  ${isFlipping ? 'bg-amber-500 border-amber-300 animate-spin text-black scale-110' : 'bg-slate-800 border-slate-600 text-white hover:bg-slate-700 hover:scale-105 shadow-[0_0_30px_rgba(255,255,255,0.1)]'}`}
+              >
+                {isFlipping ? '🪙' : 'FLIP'}
+              </button>
+            ) : (
+              <div className="animate-fade-in">
+                <div className="text-3xl font-black text-white mb-2">{tossWinner}</div>
+                <div className="text-slate-400 font-bold uppercase tracking-widest mb-8">won the toss and elected to...</div>
+                
+                <div className="flex gap-6 justify-center">
+                  <button onClick={() => handleTossChoice('Bat')} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-12 py-5 rounded-2xl text-xl shadow-xl hover:scale-105 transition-all">
+                    🏏 BAT FIRST
+                  </button>
+                  <button onClick={() => handleTossChoice('Bowl')} className="bg-cyan-500 hover:bg-cyan-400 text-black font-black px-12 py-5 rounded-2xl text-xl shadow-xl hover:scale-105 transition-all">
+                    🥎 BOWL FIRST
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* --- 4. LIVE MATCH DASHBOARD --- */}
         {appState === 'match' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
@@ -323,14 +393,11 @@ function App() {
               <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-8 border border-slate-700 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 via-cyan-500 to-blue-500"></div>
                 
-                {/* --- NEW: OVER TIMELINE HUD --- */}
                 <div className="absolute top-4 right-8 flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-widest mr-2">This Over:</span>
                   {thisOver.map((ball, idx) => (
                     <div key={idx} className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shadow-inner
-                      ${ball === 'W' ? 'bg-red-500 text-white' : 
-                        ball === 'Wd' || ball === 'Nb' ? 'bg-amber-500 text-black' : 
-                        ball === 6 || ball === 4 ? 'bg-emerald-500 text-black' : 'bg-slate-700 text-white'}`}>
+                      ${ball === 'W' ? 'bg-red-500 text-white' : ball === 'Wd' || ball === 'Nb' ? 'bg-amber-500 text-black' : ball === 6 || ball === 4 ? 'bg-emerald-500 text-black' : 'bg-slate-700 text-white'}`}>
                       {ball}
                     </div>
                   ))}
@@ -339,7 +406,10 @@ function App() {
 
                 <div className="flex justify-between items-end mb-8 mt-6">
                   <div>
-                    <h3 className="text-slate-400 font-bold uppercase tracking-widest text-sm mb-2">Team {innings} Batting</h3>
+                    {/* UI UPDATED TO SHOW CUSTOM TEAM NAMES */}
+                    <h3 className="text-slate-400 font-bold uppercase tracking-widest text-sm mb-2">
+                      {innings === 1 ? team1Name : team2Name} Batting
+                    </h3>
                     <div className="text-7xl font-black tracking-tighter font-mono flex items-baseline gap-2">
                       {activeScore}<span className="text-4xl text-slate-500">/{activeWickets}</span>
                     </div>
@@ -352,7 +422,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* --- NEW: PARTNERSHIP TRACKER --- */}
                 <div className="bg-slate-950/30 border-y border-slate-700/50 py-2 px-4 mb-4 flex justify-between items-center">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Current Partnership</span>
                   <span className="font-mono font-bold text-emerald-400">{partnership.runs} runs <span className="text-slate-500">({partnership.balls} balls)</span></span>
@@ -419,7 +488,7 @@ function App() {
           <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl text-center mt-10 animate-fade-in">
             <h2 className="text-5xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">INNINGS BREAK</h2>
             <div className="bg-slate-950 border border-slate-800 rounded-2xl p-8 mb-8 inline-block shadow-inner">
-              <div className="text-sm text-slate-500 font-bold uppercase tracking-widest mb-2">Team 1 Final Score</div>
+              <div className="text-sm text-slate-500 font-bold uppercase tracking-widest mb-2">{team1Name} Final Score</div>
               <div className="text-8xl font-black text-white font-mono mb-2">{score1}<span className="text-5xl text-slate-600">/{wickets1}</span></div>
             </div>
             <button onClick={startSecondInnings} className="bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-black px-12 py-5 rounded-2xl text-xl hover:scale-[1.02] active:scale-95 transition-all w-full md:w-auto">
@@ -433,21 +502,19 @@ function App() {
             <div className="text-center mb-10">
               <h2 className="text-6xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">MATCH OVER</h2>
               <div className="text-2xl font-bold text-white bg-slate-800 inline-block px-8 py-3 rounded-full border border-slate-700 shadow-lg">
-                {score2 > score1 ? `🏆 Team 2 Wins by ${10 - wickets2} wickets!` : score1 > score2 ? `🏆 Team 1 Wins by ${score1 - score2} runs!` : "🤝 It's a Tie!"}
+                {score2 > score1 ? `🏆 ${team2Name} Wins by ${10 - wickets2} wickets!` : score1 > score2 ? `🏆 ${team1Name} Wins by ${score1 - score2} runs!` : "🤝 It's a Tie!"}
               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
               <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden">
                 <div className="bg-slate-800 p-4 flex justify-between items-center border-b border-slate-700">
-                  <h3 className="font-black text-xl">Team 1 Batting</h3>
+                  <h3 className="font-black text-xl">{team1Name} Batting</h3>
                   <div className="font-mono text-xl text-emerald-400">{score1}/{wickets1}</div>
                 </div>
                 <div className="p-4 space-y-2">
                   <div className="flex text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 border-b border-slate-800 pb-2">
-                    <div className="flex-1">Batter</div>
-                    <div className="w-12 text-center">R</div>
-                    <div className="w-12 text-center">B</div>
+                    <div className="flex-1">Batter</div><div className="w-12 text-center">R</div><div className="w-12 text-center">B</div>
                   </div>
                   {team1.map(p => playerStats[p.id]?.ballsFaced > 0 && (
                     <div key={p.id} className="flex text-sm items-center py-1 border-b border-slate-800/50">
@@ -461,14 +528,12 @@ function App() {
 
               <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden">
                 <div className="bg-slate-800 p-4 flex justify-between items-center border-b border-slate-700">
-                  <h3 className="font-black text-xl">Team 2 Batting</h3>
+                  <h3 className="font-black text-xl">{team2Name} Batting</h3>
                   <div className="font-mono text-xl text-cyan-400">{score2}/{wickets2}</div>
                 </div>
                 <div className="p-4 space-y-2">
                   <div className="flex text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 border-b border-slate-800 pb-2">
-                    <div className="flex-1">Batter</div>
-                    <div className="w-12 text-center">R</div>
-                    <div className="w-12 text-center">B</div>
+                    <div className="flex-1">Batter</div><div className="w-12 text-center">R</div><div className="w-12 text-center">B</div>
                   </div>
                   {team2.map(p => playerStats[p.id]?.ballsFaced > 0 && (
                     <div key={p.id} className="flex text-sm items-center py-1 border-b border-slate-800/50">
