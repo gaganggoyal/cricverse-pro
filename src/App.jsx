@@ -4,8 +4,17 @@ import { playerDatabase } from './players';
 // 🚨 PASTE YOUR API KEY HERE!
 const GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY_HERE';
 
+// --- NEW: FORMAT RULES ENGINE ---
+const FORMAT_RULES = {
+  'T10': { maxOvers: 10, maxBowlerOvers: 2 },
+  'T20': { maxOvers: 20, maxBowlerOvers: 4 },
+  'ODI': { maxOvers: 50, maxBowlerOvers: 10 }
+};
+
 function App() {
   const [appState, setAppState] = useState('config'); 
+  const [matchFormat, setMatchFormat] = useState('T20'); // NEW: Format State
+  
   const [team1Name, setTeam1Name] = useState('Mumbai Indians');
   const [team2Name, setTeam2Name] = useState('Chennai Super Kings');
   const [team1, setTeam1] = useState([]);
@@ -37,37 +46,32 @@ function App() {
   const [isSimulating, setIsSimulating] = useState(false);
   const [isMuted, setIsMuted] = useState(false); 
   const commentaryEndRef = useRef(null);
-
-  // --- NEW: SAVE GAME DETECTION STATE ---
   const [savedGameExists, setSavedGameExists] = useState(false);
 
-  // 1. Check for save file when the app first loads
   useEffect(() => {
-    if (localStorage.getItem('cricverseProSave')) {
-      setSavedGameExists(true);
-    }
+    if (localStorage.getItem('cricverseProSave')) setSavedGameExists(true);
     commentaryEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [commentaryFeed]);
 
-  // 2. AUTO-SAVE ENGINE: Triggers every time core state changes!
+  // Updated Auto-Save to include matchFormat
   useEffect(() => {
     if (appState !== 'config') {
       const gameState = {
-        appState, team1Name, team2Name, team1, team2, availablePlayers,
+        appState, matchFormat, team1Name, team2Name, team1, team2, availablePlayers,
         tossWinner, innings, score1, wickets1, balls1, score2, wickets2, balls2,
         playerStats, commentaryFeed, currentBatter, currentBowler, previousBowler,
         partnership, thisOver, needsBowlerSelection
       };
       localStorage.setItem('cricverseProSave', JSON.stringify(gameState));
     }
-  }, [appState, team1Name, team2Name, team1, team2, availablePlayers, tossWinner, innings, score1, wickets1, balls1, score2, wickets2, balls2, playerStats, commentaryFeed, currentBatter, currentBowler, previousBowler, partnership, thisOver, needsBowlerSelection]);
+  }, [appState, matchFormat, team1Name, team2Name, team1, team2, availablePlayers, tossWinner, innings, score1, wickets1, balls1, score2, wickets2, balls2, playerStats, commentaryFeed, currentBatter, currentBowler, previousBowler, partnership, thisOver, needsBowlerSelection]);
 
-  // 3. LOAD GAME FUNCTION
   const loadGame = () => {
     const saved = localStorage.getItem('cricverseProSave');
     if (saved) {
       const data = JSON.parse(saved);
-      setAppState(data.appState); setTeam1Name(data.team1Name); setTeam2Name(data.team2Name);
+      setAppState(data.appState); setMatchFormat(data.matchFormat || 'T20');
+      setTeam1Name(data.team1Name); setTeam2Name(data.team2Name);
       setTeam1(data.team1); setTeam2(data.team2); setAvailablePlayers(data.availablePlayers);
       setTossWinner(data.tossWinner); setInnings(data.innings); 
       setScore1(data.score1); setWickets1(data.wickets1); setBalls1(data.balls1);
@@ -79,9 +83,8 @@ function App() {
     }
   };
 
-  // 4. RESET MATCH FUNCTION
   const startNewMatch = () => {
-    localStorage.removeItem('cricverseProSave'); // Delete the save file!
+    localStorage.removeItem('cricverseProSave'); 
     window.location.reload();
   };
 
@@ -140,7 +143,7 @@ function App() {
 
   const generateCommentary = async (result, isWicket, isExtra, batter, bowler) => {
     if (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') return `[API KEY MISSING] Add key at top of App.jsx!`;
-    let prompt = `You are a live T20 cricket commentator. Match: ${team1Name} vs ${team2Name}. Write ONE short, thrilling sentence of live commentary. Bowler: ${bowler.name}. Batter: ${batter.name}. `;
+    let prompt = `You are a live ${matchFormat} cricket commentator. Match: ${team1Name} vs ${team2Name}. Write ONE short, thrilling sentence of live commentary. Bowler: ${bowler.name}. Batter: ${batter.name}. `;
     if (isWicket) prompt += `Outcome: OUT! It's a spectacular wicket. Make it dramatic.`;
     else if (result === 'Wd') prompt += `Outcome: Wide ball! Terrible line by the bowler.`;
     else if (result === 'Nb') prompt += `Outcome: No ball! The bowler overstepped.`;
@@ -171,8 +174,11 @@ function App() {
 
   const playBall = async () => {
     if (isSimulating || needsBowlerSelection) return;
-    if (innings === 1 && wickets1 >= 10) return;
-    if (innings === 2 && (wickets2 >= 10 || score2 > score1)) return;
+    
+    // Safety check for end of match
+    const rules = FORMAT_RULES[matchFormat];
+    if (innings === 1 && (wickets1 >= 10 || balls1 >= rules.maxOvers * 6)) return;
+    if (innings === 2 && (wickets2 >= 10 || balls2 >= rules.maxOvers * 6 || score2 > score1)) return;
 
     setIsSimulating(true);
     setVfx(null);
@@ -222,7 +228,10 @@ function App() {
       if (remainingPlayers.length > 0) setCurrentBatter(remainingPlayers[Math.floor(Math.random() * remainingPlayers.length)]);
     }
 
-    const isEndOfInnings = currentWickets >= 10 || (innings === 2 && currentScore > score1);
+    // --- UPDATED END OF INNINGS LOGIC ---
+    const maxBallsTotal = rules.maxOvers * 6;
+    const isEndOfInnings = currentWickets >= 10 || currentBalls >= maxBallsTotal || (innings === 2 && currentScore > score1);
+    
     if (!isExtra && currentBalls > 0 && currentBalls % 6 === 0 && !isEndOfInnings) {
       setPreviousBowler(currentBowler);
       setNeedsBowlerSelection(true);
@@ -231,13 +240,19 @@ function App() {
     setTimeout(() => {
       setVfx(null);
       setIsSimulating(false);
-      if (isEndOfInnings) setAppState('postMatch');
+      if (isEndOfInnings) {
+        if (innings === 1) setAppState('inningsBreak');
+        else setAppState('postMatch');
+      }
     }, 1200); 
   };
 
   const autoSimulate = () => {
     if (isSimulating || needsBowlerSelection) return;
     
+    const rules = FORMAT_RULES[matchFormat];
+    const maxBallsTotal = rules.maxOvers * 6;
+
     let tempBalls = innings === 1 ? balls1 : balls2;
     let tempScore = innings === 1 ? score1 : score2;
     let tempWickets = innings === 1 ? wickets1 : wickets2;
@@ -246,7 +261,8 @@ function App() {
     let tempBowler = currentBowler;
     let tempPrevBowler = previousBowler;
     
-    while (tempWickets < 10) {
+    // Now it checks for Wickets AND Max Overs!
+    while (tempWickets < 10 && tempBalls < maxBallsTotal) {
       if (innings === 2 && tempScore > score1) break; 
       const { result, isWicket, isExtra, totalRunsThisBall, batterRuns } = processDelivery();
 
@@ -262,9 +278,10 @@ function App() {
         if (remainingPlayers.length > 0) tempBatter = remainingPlayers[Math.floor(Math.random() * remainingPlayers.length)];
       }
 
-      if (!isExtra && tempBalls > 0 && tempBalls % 6 === 0 && tempWickets < 10 && !(innings === 2 && tempScore > score1)) {
+      // Rotate bowlers dynamically based on format quota
+      if (!isExtra && tempBalls > 0 && tempBalls % 6 === 0 && tempWickets < 10 && tempBalls < maxBallsTotal && !(innings === 2 && tempScore > score1)) {
         const bowlingTeam = innings === 1 ? team2 : team1;
-        const validBowlers = bowlingTeam.filter(p => p.id !== tempBowler.id && (tempStats[p.id]?.ballsBowled || 0) < 24);
+        const validBowlers = bowlingTeam.filter(p => p.id !== tempBowler.id && (tempStats[p.id]?.ballsBowled || 0) < (rules.maxBowlerOvers * 6));
         let nextBowlers = validBowlers.filter(p => p.role === 'Bowler' || p.role === 'All-Rounder');
         if (nextBowlers.length === 0) nextBowlers = validBowlers; 
         if (nextBowlers.length === 0) nextBowlers = bowlingTeam.filter(p => p.id !== tempBowler.id); 
@@ -280,7 +297,11 @@ function App() {
     setPlayerStats(tempStats); setCurrentBatter(tempBatter); setCurrentBowler(tempBowler); setPreviousBowler(tempPrevBowler);
     setThisOver([]); 
     setCommentaryFeed(prev => [...prev, { ball: tempBalls, text: `⚡ Innings auto-simulated to completion.`, type: 'normal' }]);
-    if (innings === 2 && (tempScore > score1 || tempWickets >= 10)) setAppState('postMatch');
+    
+    if (tempWickets >= 10 || tempBalls >= maxBallsTotal || (innings === 2 && tempScore > score1)) {
+      if (innings === 1) setAppState('inningsBreak');
+      else setAppState('postMatch');
+    }
   };
 
   const activeScore = innings === 1 ? score1 : score2;
@@ -289,6 +310,7 @@ function App() {
   const overs = Math.floor(activeBalls / 6);
   const legalBalls = activeBalls % 6;
   const fieldingTeam = innings === 1 ? team2 : team1;
+  const currentRules = FORMAT_RULES[matchFormat];
 
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans overflow-hidden relative selection:bg-emerald-500/30">
@@ -302,7 +324,8 @@ function App() {
           </h1>
           <div className="flex gap-4 items-center">
             <button onClick={() => setIsMuted(!isMuted)} className="text-2xl hover:scale-110 transition-transform" title={isMuted ? "Unmute" : "Mute"}>{isMuted ? '🔇' : '🔊'}</button>
-            <div className="text-sm font-bold bg-emerald-500/20 text-emerald-400 px-4 py-1 rounded-full border border-emerald-500/30">
+            <div className="text-sm font-bold bg-emerald-500/20 text-emerald-400 px-4 py-1 rounded-full border border-emerald-500/30 flex items-center gap-2">
+              <span className="text-white border-r border-emerald-500/50 pr-2">{matchFormat}</span>
               {appState.toUpperCase()}
             </div>
           </div>
@@ -314,6 +337,30 @@ function App() {
         {appState === 'config' && (
           <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl mt-10 animate-fade-in text-center">
             <h2 className="text-3xl font-black mb-8 text-white">Match Setup</h2>
+            
+            {/* --- NEW: FORMAT SELECTOR --- */}
+            <div className="mb-8 text-left">
+              <label className="block text-slate-400 font-bold mb-2 uppercase text-xs tracking-widest">Match Format</label>
+              <div className="flex gap-2">
+                {Object.keys(FORMAT_RULES).map((format) => (
+                  <button
+                    key={format}
+                    onClick={() => setMatchFormat(format)}
+                    className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+                      matchFormat === format 
+                        ? 'bg-emerald-500 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.4)]' 
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    {format}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500 mt-2 italic text-center">
+                {FORMAT_RULES[matchFormat].maxOvers} Overs • {FORMAT_RULES[matchFormat].maxBowlerOvers} Overs per Bowler
+              </p>
+            </div>
+
             <div className="space-y-6 mb-8 text-left">
               <div>
                 <label className="block text-emerald-400 font-bold mb-2 uppercase text-xs tracking-widest">Home Team Name</label>
@@ -329,12 +376,8 @@ function App() {
               PROCEED TO DRAFT ➔
             </button>
 
-            {/* --- NEW RESUME BUTTON --- */}
             {savedGameExists && (
-              <button 
-                onClick={loadGame} 
-                className="w-full mt-4 bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-cyan-500/30 font-black px-8 py-4 rounded-xl transition-all shadow-lg"
-              >
+              <button onClick={loadGame} className="w-full mt-4 bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-cyan-500/30 font-black px-8 py-4 rounded-xl transition-all shadow-lg">
                 🔄 RESUME SAVED MATCH
               </button>
             )}
@@ -414,7 +457,7 @@ function App() {
                     <div className="text-7xl font-black tracking-tighter font-mono flex items-baseline gap-2">{activeScore}<span className="text-4xl text-slate-500">/{activeWickets}</span></div>
                   </div>
                   <div className="text-right">
-                    <h3 className="text-slate-400 font-bold uppercase tracking-widest text-sm mb-2">Overs</h3>
+                    <h3 className="text-slate-400 font-bold uppercase tracking-widest text-sm mb-2">Overs ({currentRules.maxOvers} Max)</h3>
                     <div className="text-5xl font-black text-cyan-400 font-mono">{overs}.{legalBalls}</div>
                   </div>
                 </div>
@@ -438,18 +481,16 @@ function App() {
                 </div>
               </div>
 
-              {innings === 1 && activeWickets >= 10 ? (
-                <button onClick={() => setAppState('inningsBreak')} className="w-full py-6 rounded-2xl text-2xl font-black uppercase tracking-widest transition-all shadow-xl bg-cyan-500 text-slate-950 hover:bg-cyan-400 animate-pulse">PROCEED TO INNINGS BREAK ➔</button>
-              ) : needsBowlerSelection ? (
+              {needsBowlerSelection ? (
                 <div className="bg-slate-900 border border-emerald-500/30 p-6 rounded-3xl shadow-2xl animate-fade-in ring-2 ring-emerald-500/20">
                   <h3 className="text-emerald-400 font-bold uppercase tracking-widest mb-4 flex items-center justify-between">
-                    <span>Select Bowler for Next Over</span><span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded">Quota: 4 Overs</span>
+                    <span>Select Bowler for Next Over</span><span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded">Quota: {currentRules.maxBowlerOvers} Overs</span>
                   </h3>
                   <div className="grid grid-cols-2 gap-3">
                     {fieldingTeam.map(p => {
                       const stats = playerStats[p.id];
                       const oversBowled = Math.floor(stats.ballsBowled / 6);
-                      const isMaxedOut = stats.ballsBowled >= 24;
+                      const isMaxedOut = stats.ballsBowled >= (currentRules.maxBowlerOvers * 6);
                       const isPrevBowler = previousBowler?.id === p.id;
                       const disabled = isMaxedOut || isPrevBowler;
 
@@ -459,7 +500,7 @@ function App() {
                           className={`p-3 rounded-xl flex flex-col items-start transition-all border ${disabled ? 'bg-slate-950 border-slate-800 opacity-50 cursor-not-allowed' : 'bg-slate-800 border-slate-700 hover:bg-emerald-500 hover:text-black hover:border-emerald-400'}`}
                         >
                           <span className="font-bold">{p.name}</span>
-                          <span className="text-xs mt-1 font-mono">{isMaxedOut ? '🔒 Quota Reached' : isPrevBowler ? '⏳ Resting' : `${oversBowled}/4 Overs`}</span>
+                          <span className="text-xs mt-1 font-mono">{isMaxedOut ? '🔒 Quota Reached' : isPrevBowler ? '⏳ Resting' : `${oversBowled}/${currentRules.maxBowlerOvers} Overs`}</span>
                         </button>
                       )
                     })}
@@ -551,7 +592,6 @@ function App() {
               </div>
             </div>
             
-            {/* --- UPDATED TO WIPE SAVE FILE ON RESTART --- */}
             <div className="text-center">
               <button onClick={startNewMatch} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-4 rounded-xl transition-colors border border-slate-700 shadow-xl">
                 ↻ Start New Match
