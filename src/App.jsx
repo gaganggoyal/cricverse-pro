@@ -10,7 +10,6 @@ function App() {
   const [team2, setTeam2] = useState([]);
   const [availablePlayers, setAvailablePlayers] = useState(playerDatabase);
 
-  // Match State
   const [innings, setInnings] = useState(1);
   const [score1, setScore1] = useState(0);
   const [wickets1, setWickets1] = useState(0);
@@ -19,9 +18,7 @@ function App() {
   const [wickets2, setWickets2] = useState(0);
   const [balls2, setBalls2] = useState(0);
 
-  // --- NEW: Individual Player Stats Tracker ---
   const [playerStats, setPlayerStats] = useState({});
-
   const [commentaryFeed, setCommentaryFeed] = useState([]);
   const [currentBatter, setCurrentBatter] = useState(null);
   const [currentBowler, setCurrentBowler] = useState(null);
@@ -42,14 +39,11 @@ function App() {
 
   const startMatch = () => {
     if (team1.length === 0 || team2.length === 0) return alert("Draft players first!");
-    
-    // Initialize stats for everyone to 0
     const initialStats = {};
     [...team1, ...team2].forEach(p => {
       initialStats[p.id] = { runs: 0, ballsFaced: 0, wickets: 0, runsGiven: 0, ballsBowled: 0 };
     });
     setPlayerStats(initialStats);
-
     setCurrentBatter(team1.find(p => p.role === 'Batter' || p.role === 'All-Rounder') || team1[0]);
     setCurrentBowler(team2.find(p => p.role === 'Bowler' || p.role === 'All-Rounder') || team2[0]);
     setAppState('match');
@@ -101,7 +95,6 @@ function App() {
     if (runs === 6 || runs === 4) setVfx('rocket');
     if (isWicket) setVfx('explosion');
 
-    // Update Team Stats
     const currentBalls = (innings === 1 ? balls1 : balls2) + 1;
     const currentScore = (innings === 1 ? score1 : score2) + runs;
     const currentWickets = (innings === 1 ? wickets1 : wickets2) + (isWicket ? 1 : 0);
@@ -114,24 +107,17 @@ function App() {
       setBalls2(currentBalls);
     }
 
-    // --- NEW: Update Individual Player Stats (FIXED DOUBLE COUNTING) ---
     setPlayerStats(prev => {
-      // structuredClone makes a deep copy so React Strict Mode doesn't add numbers twice!
       const newStats = structuredClone(prev);
-      
-      // Update Batter
       if (newStats[currentBatter.id]) {
         newStats[currentBatter.id].runs += runs;
         newStats[currentBatter.id].ballsFaced += 1;
       }
-      
-      // Update Bowler
       if (newStats[currentBowler.id]) {
         newStats[currentBowler.id].runsGiven += runs;
         newStats[currentBowler.id].ballsBowled += 1;
         if (isWicket) newStats[currentBowler.id].wickets += 1;
       }
-      
       return newStats;
     });
 
@@ -147,11 +133,8 @@ function App() {
 
     if (isWicket && currentWickets < 10) {
       const battingTeam = innings === 1 ? team1 : team2;
-      // Find players who haven't batted yet (ballsFaced === 0)
       const remainingPlayers = battingTeam.filter(p => p.id !== currentBatter.id && playerStats[p.id]?.ballsFaced === 0);
-      if (remainingPlayers.length > 0) {
-        setCurrentBatter(remainingPlayers[Math.floor(Math.random() * remainingPlayers.length)]);
-      }
+      if (remainingPlayers.length > 0) setCurrentBatter(remainingPlayers[Math.floor(Math.random() * remainingPlayers.length)]);
     }
 
     setTimeout(() => {
@@ -161,13 +144,74 @@ function App() {
     }, 1200); 
   };
 
+  // --- NEW: AUTO SIMULATE INNINGS ---
+  const autoSimulate = () => {
+    if (isSimulating) return;
+    
+    let tempBalls = innings === 1 ? balls1 : balls2;
+    let tempScore = innings === 1 ? score1 : score2;
+    let tempWickets = innings === 1 ? wickets1 : wickets2;
+    let tempStats = structuredClone(playerStats);
+    let tempBatter = currentBatter;
+    let tempBowler = currentBowler;
+    
+    const outcomes = [0, 1, 1, 2, 4, 4, 6, 'W'];
+
+    // Instantly loop until the innings is over
+    while (tempWickets < 10) {
+      if (innings === 2 && tempScore > score1) break; // Stop if target reached
+
+      const result = outcomes[Math.floor(Math.random() * outcomes.length)];
+      const isWicket = result === 'W';
+      const runs = isWicket ? 0 : result;
+
+      tempBalls++;
+      if (isWicket) tempWickets++; else tempScore += runs;
+
+      if (tempStats[tempBatter.id]) {
+        tempStats[tempBatter.id].runs += runs;
+        tempStats[tempBatter.id].ballsFaced += 1;
+      }
+      if (tempStats[tempBowler.id]) {
+        tempStats[tempBowler.id].runsGiven += runs;
+        tempStats[tempBowler.id].ballsBowled += 1;
+        if (isWicket) tempStats[tempBowler.id].wickets += 1;
+      }
+
+      if (isWicket && tempWickets < 10) {
+        const battingTeam = innings === 1 ? team1 : team2;
+        const remainingPlayers = battingTeam.filter(p => p.id !== tempBatter.id && tempStats[p.id]?.ballsFaced === 0);
+        if (remainingPlayers.length > 0) tempBatter = remainingPlayers[Math.floor(Math.random() * remainingPlayers.length)];
+      }
+    }
+
+    // Apply all calculated stats instantly
+    if (innings === 1) {
+      setScore1(tempScore);
+      setWickets1(tempWickets);
+      setBalls1(tempBalls);
+    } else {
+      setScore2(tempScore);
+      setWickets2(tempWickets);
+      setBalls2(tempBalls);
+    }
+    
+    setPlayerStats(tempStats);
+    setCurrentBatter(tempBatter);
+    
+    setCommentaryFeed(prev => [...prev, { ball: tempBalls, text: `⚡ Innings auto-simulated to completion.`, type: 'normal' }]);
+
+    if (innings === 2 && (tempScore > score1 || tempWickets >= 10)) {
+      setAppState('postMatch');
+    }
+  };
+
   const activeScore = innings === 1 ? score1 : score2;
   const activeWickets = innings === 1 ? wickets1 : wickets2;
   const activeBalls = innings === 1 ? balls1 : balls2;
   const overs = Math.floor(activeBalls / 6);
   const legalBalls = activeBalls % 6;
 
-  // Render
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans overflow-hidden relative">
       {vfx === 'rocket' && <div className="absolute inset-0 pointer-events-none z-50 flex items-center justify-center animate-rocket text-8xl">🚀</div>}
@@ -250,7 +294,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* --- UPGRADED: LIVE PLAYER STATS HUD --- */}
                 <div className="grid grid-cols-2 gap-4 bg-slate-950/50 p-4 rounded-2xl border border-slate-700/50">
                   <div>
                     <div className="text-xs text-emerald-400 font-bold uppercase mb-1">🏏 Striker</div>
@@ -269,19 +312,32 @@ function App() {
                 </div>
               </div>
 
+              {/* --- UPGRADED BUTTONS --- */}
               {innings === 1 && activeWickets >= 10 ? (
                 <button onClick={() => setAppState('inningsBreak')} className="w-full py-6 rounded-2xl text-2xl font-black uppercase tracking-widest transition-all shadow-xl bg-cyan-500 text-slate-950 hover:bg-cyan-400 animate-pulse">
                   PROCEED TO INNINGS BREAK ➔
                 </button>
               ) : (
-                <button 
-                  onClick={playBall}
-                  disabled={isSimulating}
-                  className={`w-full py-6 rounded-2xl text-2xl font-black uppercase tracking-widest transition-all shadow-xl
-                    ${isSimulating ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 active:scale-95'}`}
-                >
-                  {isSimulating ? 'SIMULATING...' : 'BOWL NEXT BALL'}
-                </button>
+                <div className="flex gap-4">
+                  <button 
+                    onClick={playBall}
+                    disabled={isSimulating}
+                    className={`flex-1 py-6 rounded-2xl text-2xl font-black uppercase tracking-widest transition-all shadow-xl
+                      ${isSimulating ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 active:scale-95'}`}
+                  >
+                    {isSimulating ? 'SIMULATING...' : 'BOWL NEXT BALL'}
+                  </button>
+                  
+                  {/* NEW AUTO-SIM BUTTON */}
+                  <button 
+                    onClick={autoSimulate}
+                    disabled={isSimulating}
+                    className={`px-8 rounded-2xl text-lg font-bold uppercase transition-all shadow-xl
+                      ${isSimulating ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-400 active:scale-95'}`}
+                  >
+                    ⚡ QUICK SIM
+                  </button>
+                </div>
               )}
             </div>
 
@@ -296,7 +352,7 @@ function App() {
                     <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm font-mono
                       ${comm.type === 'wicket' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 
                         comm.type === 'boundary' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                      {comm.runs}
+                      {comm.runs !== undefined ? comm.runs : '⚡'}
                     </div>
                     <div className="bg-slate-800/50 p-3 rounded-r-xl rounded-bl-xl text-sm border border-slate-700/50 flex-1">{comm.text}</div>
                   </div>
@@ -320,7 +376,7 @@ function App() {
           </div>
         )}
 
-        {/* --- UPGRADED: POST MATCH FULL SCORECARD --- */}
+        {/* --- POST MATCH FULL SCORECARD --- */}
         {appState === 'postMatch' && (
           <div className="max-w-6xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl mt-10 animate-fade-in">
             <div className="text-center mb-10">
@@ -331,7 +387,6 @@ function App() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-              {/* Team 1 Scorecard */}
               <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden">
                 <div className="bg-slate-800 p-4 flex justify-between items-center border-b border-slate-700">
                   <h3 className="font-black text-xl">Team 1 Batting</h3>
@@ -353,7 +408,6 @@ function App() {
                 </div>
               </div>
 
-              {/* Team 2 Scorecard */}
               <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden">
                 <div className="bg-slate-800 p-4 flex justify-between items-center border-b border-slate-700">
                   <h3 className="font-black text-xl">Team 2 Batting</h3>
