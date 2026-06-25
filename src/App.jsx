@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react';
 import { playerDatabase } from './players';
 
 // 🚨 PASTE YOUR API KEY HERE!
-// ⚠️ PASTE YOUR API KEY HERE
 const GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY_HERE';
 
 function App() {
@@ -24,33 +23,25 @@ function App() {
   const [currentBatter, setCurrentBatter] = useState(null);
   const [currentBowler, setCurrentBowler] = useState(null);
   
+  // --- NEW: ADVANCED STATS TRACKING ---
+  const [partnership, setPartnership] = useState({ runs: 0, balls: 0 });
+  const [thisOver, setThisOver] = useState([]); 
+
   const [vfx, setVfx] = useState(null);
   const [isSimulating, setIsSimulating] = useState(false);
-  const [isMuted, setIsMuted] = useState(false); // NEW: Audio State
+  const [isMuted, setIsMuted] = useState(false); 
   const commentaryEndRef = useRef(null);
 
   useEffect(() => {
     commentaryEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [commentaryFeed]);
 
-// --- LOCAL AUDIO SYSTEM (BULLETPROOF) ---
   const playAudio = (type) => {
     if (isMuted) return;
-    
-    // Because the files are in the 'public' folder, Vite automatically knows 
-    // to look at the root ('/') to find them!
-    const sounds = {
-      hit: '/hit.mp3',
-      cheer: '/cheer.mp3',
-      out: '/out.mp3'
-    };
-    
+    const sounds = { hit: '/hit.mp3', cheer: '/cheer.mp3', out: '/out.mp3' };
     const audio = new Audio(sounds[type]);
     audio.volume = type === 'hit' ? 1.0 : 0.4;
-    
-    audio.play().catch(e => {
-      console.warn("Browser blocked audio:", e.message);
-    });
+    audio.play().catch(e => console.warn("Browser blocked audio"));
   };
 
   const draftPlayer = (player, team) => {
@@ -66,6 +57,8 @@ function App() {
       initialStats[p.id] = { runs: 0, ballsFaced: 0, wickets: 0, runsGiven: 0, ballsBowled: 0 };
     });
     setPlayerStats(initialStats);
+    setPartnership({ runs: 0, balls: 0 });
+    setThisOver([]);
     setCurrentBatter(team1.find(p => p.role === 'Batter' || p.role === 'All-Rounder') || team1[0]);
     setCurrentBowler(team2.find(p => p.role === 'Bowler' || p.role === 'All-Rounder') || team2[0]);
     setAppState('match');
@@ -74,19 +67,25 @@ function App() {
   const startSecondInnings = () => {
     setInnings(2);
     setCommentaryFeed([]); 
+    setPartnership({ runs: 0, balls: 0 });
+    setThisOver([]);
     setCurrentBatter(team2.find(p => p.role === 'Batter' || p.role === 'All-Rounder') || team2[0]);
     setCurrentBowler(team1.find(p => p.role === 'Bowler' || p.role === 'All-Rounder') || team1[0]);
     setAppState('match');
   };
 
-  const generateCommentary = async (runs, isWicket, batter, bowler) => {
+  const generateCommentary = async (result, isWicket, isExtra, batter, bowler) => {
     if (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') return `[API KEY MISSING] Add key at top of App.jsx!`;
     let prompt = `You are an energetic T20 cricket commentator. Write ONE short, thrilling sentence of live commentary. Bowler: ${bowler.name}. Batter: ${batter.name}. `;
+    
     if (isWicket) prompt += `Outcome: OUT! It's a spectacular wicket. Make it dramatic.`;
-    else if (runs === 6) prompt += `Outcome: 6 runs! It's a massive six. Make it hype.`;
-    else if (runs === 4) prompt += `Outcome: 4 runs! A beautiful boundary.`;
-    else if (runs === 0) prompt += `Outcome: Dot ball. Good bowling.`;
-    else prompt += `Outcome: ${runs} run(s) taken.`;
+    else if (result === 'Wd') prompt += `Outcome: Wide ball! Terrible line by the bowler.`;
+    else if (result === 'Nb') prompt += `Outcome: No ball! The bowler overstepped.`;
+    else if (result === 6) prompt += `Outcome: 6 runs! Massive six!`;
+    else if (result === 4) prompt += `Outcome: 4 runs! Beautiful boundary.`;
+    else if (result === 0) prompt += `Outcome: Dot ball. Good defense or miss.`;
+    else prompt += `Outcome: ${result} run(s) taken.`;
+    
     if (innings === 2) prompt += ` Context: Team 2 is chasing a target of ${score1 + 1}.`;
 
     try {
@@ -101,6 +100,19 @@ function App() {
     } catch (error) { return `[NETWORK ERROR] Could not reach AI server.`; }
   };
 
+  const processDelivery = (isAutoSim = false) => {
+    // --- NEW ENGINE ODDS WITH EXTRAS ---
+    const outcomes = [0, 1, 1, 2, 4, 4, 6, 'W', 'Wd', 'Nb'];
+    const result = outcomes[Math.floor(Math.random() * outcomes.length)];
+    
+    const isWicket = result === 'W';
+    const isExtra = result === 'Wd' || result === 'Nb';
+    const totalRunsThisBall = isWicket ? 0 : isExtra ? 1 : result;
+    const batterRuns = isExtra ? 0 : totalRunsThisBall; // Batters don't get runs for extras
+
+    return { result, isWicket, isExtra, totalRunsThisBall, batterRuns };
+  };
+
   const playBall = async () => {
     if (isSimulating) return;
     if (innings === 1 && wickets1 >= 10) return;
@@ -109,25 +121,33 @@ function App() {
     setIsSimulating(true);
     setVfx(null);
 
-    const outcomes = [0, 1, 1, 2, 4, 4, 6, 'W'];
-    const result = outcomes[Math.floor(Math.random() * outcomes.length)];
-    const isWicket = result === 'W';
-    const runs = isWicket ? 0 : result;
+    const { result, isWicket, isExtra, totalRunsThisBall, batterRuns } = processDelivery();
 
-    // --- TRIGGER AUDIO & VFX ---
-    if (isWicket) {
-      setVfx('explosion');
-      playAudio('out');
-    } else {
-      if (runs > 0) playAudio('hit');
-      if (runs === 6 || runs === 4) {
-        setVfx('rocket');
-        setTimeout(() => playAudio('cheer'), 300); // Slight delay for the cheer
-      }
+    // VFX & AUDIO
+    if (isWicket) { setVfx('explosion'); playAudio('out'); }
+    else if (result === 6 || result === 4) {
+      setVfx('rocket'); playAudio('hit'); setTimeout(() => playAudio('cheer'), 300);
+    } 
+    else if (totalRunsThisBall > 0 && !isExtra) { playAudio('hit'); }
+
+    // --- OVER TRACKER LOGIC ---
+    let newThisOver = [...thisOver];
+    // If the previous array already had 6 legal deliveries, clear it for the new over
+    if (newThisOver.filter(r => r !== 'Wd' && r !== 'Nb').length === 6) {
+      newThisOver = [];
     }
+    newThisOver.push(result);
+    setThisOver(newThisOver);
 
-    const currentBalls = (innings === 1 ? balls1 : balls2) + 1;
-    const currentScore = (innings === 1 ? score1 : score2) + runs;
+    // --- PARTNERSHIP LOGIC ---
+    setPartnership(prev => {
+      if (isWicket) return { runs: 0, balls: 0 };
+      return { runs: prev.runs + totalRunsThisBall, balls: prev.balls + (isExtra ? 0 : 1) };
+    });
+
+    // Update Team Score
+    const currentBalls = (innings === 1 ? balls1 : balls2) + (isExtra ? 0 : 1);
+    const currentScore = (innings === 1 ? score1 : score2) + totalRunsThisBall;
     const currentWickets = (innings === 1 ? wickets1 : wickets2) + (isWicket ? 1 : 0);
 
     if (innings === 1) {
@@ -141,24 +161,29 @@ function App() {
     setPlayerStats(prev => {
       const newStats = structuredClone(prev);
       if (newStats[currentBatter.id]) {
-        newStats[currentBatter.id].runs += runs;
-        newStats[currentBatter.id].ballsFaced += 1;
+        newStats[currentBatter.id].runs += batterRuns;
+        if (!isExtra) newStats[currentBatter.id].ballsFaced += 1;
       }
       if (newStats[currentBowler.id]) {
-        newStats[currentBowler.id].runsGiven += runs;
-        newStats[currentBowler.id].ballsBowled += 1;
+        newStats[currentBowler.id].runsGiven += totalRunsThisBall;
+        if (!isExtra) newStats[currentBowler.id].ballsBowled += 1;
         if (isWicket) newStats[currentBowler.id].wickets += 1;
       }
       return newStats;
     });
 
     setCommentaryFeed(prev => [...prev, { ball: currentBalls, text: "Simulating...", type: 'loading' }]);
-    const aiText = await generateCommentary(runs, isWicket, currentBatter, currentBowler);
+    const aiText = await generateCommentary(result, isWicket, isExtra, currentBatter, currentBowler);
     
     setCommentaryFeed(prev => {
       const newFeed = [...prev];
       newFeed.pop(); 
-      newFeed.push({ ball: currentBalls, text: aiText, runs: result, type: isWicket ? 'wicket' : (runs === 6 || runs === 4) ? 'boundary' : 'normal' });
+      newFeed.push({ 
+        ball: currentBalls, 
+        text: aiText, 
+        runs: result, 
+        type: isWicket ? 'wicket' : isExtra ? 'extra' : (result === 6 || result === 4) ? 'boundary' : 'normal' 
+      });
       return newFeed;
     });
 
@@ -185,24 +210,21 @@ function App() {
     let tempBatter = currentBatter;
     let tempBowler = currentBowler;
     
-    const outcomes = [0, 1, 1, 2, 4, 4, 6, 'W'];
-
     while (tempWickets < 10) {
       if (innings === 2 && tempScore > score1) break; 
-      const result = outcomes[Math.floor(Math.random() * outcomes.length)];
-      const isWicket = result === 'W';
-      const runs = isWicket ? 0 : result;
+      
+      const { result, isWicket, isExtra, totalRunsThisBall, batterRuns } = processDelivery();
 
-      tempBalls++;
-      if (isWicket) tempWickets++; else tempScore += runs;
+      if (!isExtra) tempBalls++;
+      if (isWicket) tempWickets++; else tempScore += totalRunsThisBall;
 
       if (tempStats[tempBatter.id]) {
-        tempStats[tempBatter.id].runs += runs;
-        tempStats[tempBatter.id].ballsFaced += 1;
+        tempStats[tempBatter.id].runs += batterRuns;
+        if (!isExtra) tempStats[tempBatter.id].ballsFaced += 1;
       }
       if (tempStats[tempBowler.id]) {
-        tempStats[tempBowler.id].runsGiven += runs;
-        tempStats[tempBowler.id].ballsBowled += 1;
+        tempStats[tempBowler.id].runsGiven += totalRunsThisBall;
+        if (!isExtra) tempStats[tempBowler.id].ballsBowled += 1;
         if (isWicket) tempStats[tempBowler.id].wickets += 1;
       }
 
@@ -213,14 +235,12 @@ function App() {
       }
     }
 
-    if (innings === 1) {
-      setScore1(tempScore); setWickets1(tempWickets); setBalls1(tempBalls);
-    } else {
-      setScore2(tempScore); setWickets2(tempWickets); setBalls2(tempBalls);
-    }
+    if (innings === 1) { setScore1(tempScore); setWickets1(tempWickets); setBalls1(tempBalls); } 
+    else { setScore2(tempScore); setWickets2(tempWickets); setBalls2(tempBalls); }
     
     setPlayerStats(tempStats);
     setCurrentBatter(tempBatter);
+    setThisOver([]); // Clear over UI after instant sim
     setCommentaryFeed(prev => [...prev, { ball: tempBalls, text: `⚡ Innings auto-simulated to completion.`, type: 'normal' }]);
     if (innings === 2 && (tempScore > score1 || tempWickets >= 10)) setAppState('postMatch');
   };
@@ -242,12 +262,7 @@ function App() {
             CRICVERSE <span className="text-white">PRO</span>
           </h1>
           <div className="flex gap-4 items-center">
-            {/* NEW MUTE BUTTON */}
-            <button 
-              onClick={() => setIsMuted(!isMuted)} 
-              className="text-2xl hover:scale-110 transition-transform"
-              title={isMuted ? "Unmute" : "Mute"}
-            >
+            <button onClick={() => setIsMuted(!isMuted)} className="text-2xl hover:scale-110 transition-transform" title={isMuted ? "Unmute" : "Mute"}>
               {isMuted ? '🔇' : '🔊'}
             </button>
             <div className="text-sm font-bold bg-emerald-500/20 text-emerald-400 px-4 py-1 rounded-full border border-emerald-500/30">
@@ -259,6 +274,7 @@ function App() {
 
       <main className="max-w-6xl mx-auto p-4 lg:p-8">
         
+        {/* --- DRAFT SCREEN --- */}
         {(appState === 'config' || appState === 'draft') && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl">
             <div className="flex justify-between items-center mb-6">
@@ -269,7 +285,6 @@ function App() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                <h3 className="text-emerald-400 font-bold mb-2 sticky top-0 bg-slate-900 py-2">Available Players</h3>
                 {availablePlayers.map(p => (
                   <div key={p.id} className="bg-slate-800 p-3 rounded-lg flex justify-between items-center border border-slate-700">
                     <div>
@@ -287,6 +302,7 @@ function App() {
           </div>
         )}
 
+        {/* --- LIVE MATCH DASHBOARD --- */}
         {appState === 'match' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
@@ -299,17 +315,32 @@ function App() {
                   </div>
                   <div className="text-right">
                     <span className="text-emerald-400 font-bold uppercase text-sm tracking-widest block">Need</span>
-                    <span className="text-2xl font-black text-white">{(score1 + 1) - score2 > 0 ? (score1 + 1) - score2 : 0} runs to win</span>
+                    <span className="text-2xl font-black text-white">{(score1 + 1) - score2 > 0 ? (score1 + 1) - score2 : 0} runs</span>
                   </div>
                 </div>
               )}
 
               <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-8 border border-slate-700 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 via-cyan-500 to-blue-500"></div>
-                <div className="flex justify-between items-end mb-8">
+                
+                {/* --- NEW: OVER TIMELINE HUD --- */}
+                <div className="absolute top-4 right-8 flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-widest mr-2">This Over:</span>
+                  {thisOver.map((ball, idx) => (
+                    <div key={idx} className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shadow-inner
+                      ${ball === 'W' ? 'bg-red-500 text-white' : 
+                        ball === 'Wd' || ball === 'Nb' ? 'bg-amber-500 text-black' : 
+                        ball === 6 || ball === 4 ? 'bg-emerald-500 text-black' : 'bg-slate-700 text-white'}`}>
+                      {ball}
+                    </div>
+                  ))}
+                  {thisOver.length === 0 && <span className="text-sm text-slate-600 italic">Waiting...</span>}
+                </div>
+
+                <div className="flex justify-between items-end mb-8 mt-6">
                   <div>
                     <h3 className="text-slate-400 font-bold uppercase tracking-widest text-sm mb-2">Team {innings} Batting</h3>
-                    <div className="text-7xl font-black tracking-tighter font-mono">
+                    <div className="text-7xl font-black tracking-tighter font-mono flex items-baseline gap-2">
                       {activeScore}<span className="text-4xl text-slate-500">/{activeWickets}</span>
                     </div>
                   </div>
@@ -319,6 +350,12 @@ function App() {
                       {overs}.{legalBalls}
                     </div>
                   </div>
+                </div>
+
+                {/* --- NEW: PARTNERSHIP TRACKER --- */}
+                <div className="bg-slate-950/30 border-y border-slate-700/50 py-2 px-4 mb-4 flex justify-between items-center">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Current Partnership</span>
+                  <span className="font-mono font-bold text-emerald-400">{partnership.runs} runs <span className="text-slate-500">({partnership.balls} balls)</span></span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 bg-slate-950/50 p-4 rounded-2xl border border-slate-700/50">
@@ -345,20 +382,10 @@ function App() {
                 </button>
               ) : (
                 <div className="flex gap-4">
-                  <button 
-                    onClick={playBall}
-                    disabled={isSimulating}
-                    className={`flex-1 py-6 rounded-2xl text-2xl font-black uppercase tracking-widest transition-all shadow-xl
-                      ${isSimulating ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 active:scale-95'}`}
-                  >
+                  <button onClick={playBall} disabled={isSimulating} className={`flex-1 py-6 rounded-2xl text-2xl font-black uppercase tracking-widest transition-all shadow-xl ${isSimulating ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 active:scale-95'}`}>
                     {isSimulating ? 'SIMULATING...' : 'BOWL NEXT BALL'}
                   </button>
-                  <button 
-                    onClick={autoSimulate}
-                    disabled={isSimulating}
-                    className={`px-8 rounded-2xl text-lg font-bold uppercase transition-all shadow-xl
-                      ${isSimulating ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-400 active:scale-95'}`}
-                  >
+                  <button onClick={autoSimulate} disabled={isSimulating} className={`px-8 rounded-2xl text-lg font-bold uppercase transition-all shadow-xl ${isSimulating ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-400 active:scale-95'}`}>
                     ⚡ QUICK SIM
                   </button>
                 </div>
@@ -375,6 +402,7 @@ function App() {
                   <div key={idx} className="animate-fade-in flex gap-3">
                     <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm font-mono
                       ${comm.type === 'wicket' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 
+                        comm.type === 'extra' ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' : 
                         comm.type === 'boundary' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}`}>
                       {comm.runs !== undefined ? comm.runs : '⚡'}
                     </div>
