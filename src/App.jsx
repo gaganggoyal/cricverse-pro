@@ -10,7 +10,6 @@ const FORMAT_RULES = {
   'ODI': { maxOvers: 50, maxBowlerOvers: 10 }
 };
 
-// Helper to generate animated portraits
 const getAvatarUrl = (name, teamColor) => {
   return `https://api.dicebear.com/9.x/avataaars/svg?seed=${name}&backgroundColor=${teamColor}`;
 };
@@ -46,14 +45,15 @@ function App() {
   const [needsBowlerSelection, setNeedsBowlerSelection] = useState(false);
   const [previousBowler, setPreviousBowler] = useState(null);
 
+  // --- NEW: BROADCAST DELIVERY DATA STATE ---
+  const [lastDelivery, setLastDelivery] = useState(null);
+
   const [vfx, setVfx] = useState(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [isMuted, setIsMuted] = useState(false); 
   const commentaryEndRef = useRef(null);
   const [savedGameExists, setSavedGameExists] = useState(false);
-
-  // --- NEW: TV BROADCAST BALL ANIMATION STATE ---
-  const [isBowlingBall, setIsBowlingBall] = useState(false);
+  const [isBowlingBall, setIsBowlingBall] = useState(false); 
 
   useEffect(() => {
     if (localStorage.getItem('cricverseProSave')) setSavedGameExists(true);
@@ -66,11 +66,11 @@ function App() {
         appState, matchFormat, team1Name, team2Name, team1, team2, availablePlayers,
         tossWinner, innings, score1, wickets1, balls1, score2, wickets2, balls2,
         playerStats, commentaryFeed, currentBatter, currentBowler, previousBowler,
-        partnership, thisOver, needsBowlerSelection
+        partnership, thisOver, needsBowlerSelection, lastDelivery
       };
       localStorage.setItem('cricverseProSave', JSON.stringify(gameState));
     }
-  }, [appState, matchFormat, team1Name, team2Name, team1, team2, availablePlayers, tossWinner, innings, score1, wickets1, balls1, score2, wickets2, balls2, playerStats, commentaryFeed, currentBatter, currentBowler, previousBowler, partnership, thisOver, needsBowlerSelection]);
+  }, [appState, matchFormat, team1Name, team2Name, team1, team2, availablePlayers, tossWinner, innings, score1, wickets1, balls1, score2, wickets2, balls2, playerStats, commentaryFeed, currentBatter, currentBowler, previousBowler, partnership, thisOver, needsBowlerSelection, lastDelivery]);
 
   const loadGame = () => {
     const saved = localStorage.getItem('cricverseProSave');
@@ -86,6 +86,7 @@ function App() {
       setCurrentBatter(data.currentBatter); setCurrentBowler(data.currentBowler);
       setPreviousBowler(data.previousBowler); setPartnership(data.partnership);
       setThisOver(data.thisOver); setNeedsBowlerSelection(data.needsBowlerSelection);
+      setLastDelivery(data.lastDelivery || null);
     }
   };
 
@@ -129,7 +130,7 @@ function App() {
     [...finalBattingTeam, ...finalBowlingTeam].forEach(p => {
       initialStats[p.id] = { runs: 0, ballsFaced: 0, wickets: 0, runsGiven: 0, ballsBowled: 0 };
     });
-    setPlayerStats(initialStats); setPartnership({ runs: 0, balls: 0 }); setThisOver([]);
+    setPlayerStats(initialStats); setPartnership({ runs: 0, balls: 0 }); setThisOver([]); setLastDelivery(null);
     setCurrentBatter(finalBattingTeam.find(p => p.role === 'Batter' || p.role === 'All-Rounder') || finalBattingTeam[0]);
     
     setCurrentBowler(null); setPreviousBowler(null); setNeedsBowlerSelection(true);
@@ -141,23 +142,32 @@ function App() {
     setCommentaryFeed([]); 
     setPartnership({ runs: 0, balls: 0 });
     setThisOver([]);
+    setLastDelivery(null);
     setCurrentBatter(team2.find(p => p.role === 'Batter' || p.role === 'All-Rounder') || team2[0]);
     
     setCurrentBowler(null); setPreviousBowler(null); setNeedsBowlerSelection(true);
     setAppState('match');
   };
 
-  const generateCommentary = async (result, isWicket, isExtra, batter, bowler) => {
+  // --- UPGRADED COMMENTARY PROMPT ---
+  const generateCommentary = async (result, isWicket, isExtra, batter, bowler, deliveryData) => {
     if (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') return `[API KEY MISSING] Add key at top of App.jsx!`;
-    let prompt = `You are a live ${matchFormat} cricket commentator. Match: ${team1Name} vs ${team2Name}. Write ONE short, thrilling sentence of live commentary. Bowler: ${bowler.name}. Batter: ${batter.name}. `;
-    if (isWicket) prompt += `Outcome: OUT! It's a spectacular wicket. Make it dramatic.`;
+    
+    let prompt = `You are a live TV cricket commentator. Match: ${team1Name} vs ${team2Name}. Bowler: ${bowler.name}. Batter: ${batter.name}. `;
+    
+    // Inject the speed, length, and direction into the AI's brain!
+    prompt += `Delivery Data: ${deliveryData.speed} km/h ${deliveryData.length}. `;
+    if (deliveryData.direction) prompt += `Shot played towards: ${deliveryData.direction}. `;
+
+    if (isWicket) prompt += `Outcome: OUT! It's a spectacular wicket. Make the commentary dramatic and mention the delivery data.`;
     else if (result === 'Wd') prompt += `Outcome: Wide ball! Terrible line by the bowler.`;
     else if (result === 'Nb') prompt += `Outcome: No ball! The bowler overstepped.`;
-    else if (result === 6) prompt += `Outcome: 6 runs! Massive six!`;
-    else if (result === 4) prompt += `Outcome: 4 runs! Beautiful boundary.`;
+    else if (result === 6) prompt += `Outcome: 6 runs! Massive six! Mention the shot direction.`;
+    else if (result === 4) prompt += `Outcome: 4 runs! Beautiful boundary. Mention the shot direction.`;
     else if (result === 0) prompt += `Outcome: Dot ball. Good defense or miss.`;
-    else prompt += `Outcome: ${result} run(s) taken.`;
-    if (innings === 2) prompt += ` Context: ${team2Name} is chasing a target of ${score1 + 1}.`;
+    else prompt += `Outcome: ${result} run(s) taken towards ${deliveryData.direction}.`;
+    
+    if (innings === 2) prompt += ` Context: Chasing target of ${score1 + 1}. Write ONE thrilling sentence.`;
 
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
@@ -170,12 +180,33 @@ function App() {
     } catch (error) { return `[NETWORK ERROR] Could not reach AI server.`; }
   };
 
+  // --- UPGRADED PHYSICS ENGINE ---
   const processDelivery = () => {
     const outcomes = [0, 1, 1, 2, 4, 4, 6, 'W', 'Wd', 'Nb'];
     const result = outcomes[Math.floor(Math.random() * outcomes.length)];
     const isWicket = result === 'W';
     const isExtra = result === 'Wd' || result === 'Nb';
-    return { result, isWicket, isExtra, totalRunsThisBall: isWicket ? 0 : isExtra ? 1 : result, batterRuns: isExtra ? 0 : (isWicket ? 0 : result) };
+    
+    // 1. Generate Speed (115 to 152 km/h)
+    const speed = Math.floor(Math.random() * (152 - 115 + 1)) + 115;
+    
+    // 2. Generate Pitch Length
+    const lengths = ['Yorker', 'Full', 'Good Length', 'Short', 'Bouncer'];
+    const length = lengths[Math.floor(Math.random() * lengths.length)];
+    
+    // 3. Generate Shot Direction (Only if they actually hit the ball)
+    const directions = ['Cover', 'Mid-Wicket', 'Fine Leg', 'Third Man', 'Long On', 'Long Off', 'Square Leg', 'Point', 'Straight down the ground'];
+    let direction = null;
+    if (!isWicket && !isExtra && result > 0) {
+      direction = directions[Math.floor(Math.random() * directions.length)];
+    }
+
+    return { 
+      result, isWicket, isExtra, 
+      totalRunsThisBall: isWicket ? 0 : isExtra ? 1 : result, 
+      batterRuns: isExtra ? 0 : (isWicket ? 0 : result),
+      deliveryData: { speed, length, direction } // Passed to state!
+    };
   };
 
   const playBall = async () => {
@@ -187,13 +218,13 @@ function App() {
 
     setIsSimulating(true);
     setVfx(null);
-    setIsBowlingBall(true); // TRIGGER TV BROADCAST ANIMATION!
+    setIsBowlingBall(true); 
 
-    const { result, isWicket, isExtra, totalRunsThisBall, batterRuns } = processDelivery();
+    const { result, isWicket, isExtra, totalRunsThisBall, batterRuns, deliveryData } = processDelivery();
 
-    // DELAY THE HIT UNTIL THE BALL REACHES THE BATTER (500ms)
     setTimeout(() => {
       setIsBowlingBall(false);
+      setLastDelivery(deliveryData); // Update the TV graphic!
       
       if (isWicket) { setVfx('explosion'); playAudio('out'); }
       else if (result === 6 || result === 4) { setVfx('rocket'); playAudio('hit'); setTimeout(() => playAudio('cheer'), 300); } 
@@ -224,8 +255,8 @@ function App() {
       return newStats;
     });
 
-    setCommentaryFeed(prev => [...prev, { ball: currentBalls, text: "Simulating...", type: 'loading' }]);
-    const aiText = await generateCommentary(result, isWicket, isExtra, currentBatter, currentBowler);
+    setCommentaryFeed(prev => [...prev, { ball: currentBalls, text: "Analyzing speed & trajectory...", type: 'loading' }]);
+    const aiText = await generateCommentary(result, isWicket, isExtra, currentBatter, currentBowler, deliveryData);
     
     setCommentaryFeed(prev => {
       const newFeed = [...prev]; newFeed.pop(); 
@@ -270,10 +301,12 @@ function App() {
     let tempBatter = currentBatter;
     let tempBowler = currentBowler;
     let tempPrevBowler = previousBowler;
+    let tempLastDelivery = lastDelivery;
     
     while (tempWickets < 10 && tempBalls < maxBallsTotal) {
       if (innings === 2 && tempScore > score1) break; 
-      const { result, isWicket, isExtra, totalRunsThisBall, batterRuns } = processDelivery();
+      const { result, isWicket, isExtra, totalRunsThisBall, batterRuns, deliveryData } = processDelivery();
+      tempLastDelivery = deliveryData; // Keep updating the gun 
 
       if (!isExtra) tempBalls++;
       if (isWicket) tempWickets++; else tempScore += totalRunsThisBall;
@@ -303,7 +336,7 @@ function App() {
     else { setScore2(tempScore); setWickets2(tempWickets); setBalls2(tempBalls); }
     
     setPlayerStats(tempStats); setCurrentBatter(tempBatter); setCurrentBowler(tempBowler); setPreviousBowler(tempPrevBowler);
-    setThisOver([]); 
+    setThisOver([]); setLastDelivery(tempLastDelivery);
     setCommentaryFeed(prev => [...prev, { ball: tempBalls, text: `⚡ Innings auto-simulated to completion.`, type: 'normal' }]);
     
     if (tempWickets >= 10 || tempBalls >= maxBallsTotal || (innings === 2 && tempScore > score1)) {
@@ -320,8 +353,7 @@ function App() {
   const fieldingTeam = innings === 1 ? team2 : team1;
   const currentRules = FORMAT_RULES[matchFormat];
 
-  // Colors for the avatars based on batting/bowling team
-  const batTeamColor = innings === 1 ? '059669' : '0891b2'; // Emerald for T1, Cyan for T2
+  const batTeamColor = innings === 1 ? '059669' : '0891b2'; 
   const bowlTeamColor = innings === 1 ? '0891b2' : '059669';
 
   return (
@@ -388,7 +420,6 @@ function App() {
                 {availablePlayers.map(p => (
                   <div key={p.id} className="bg-slate-800 p-3 rounded-lg flex justify-between items-center border border-slate-700">
                     <div className="flex items-center gap-3">
-                      {/* Avatar preview in draft! */}
                       <img src={getAvatarUrl(p.name, '334155')} alt={p.name} className="w-8 h-8 rounded-full bg-white/10" />
                       <div>
                         <span className="font-bold block leading-tight">{p.name}</span>
@@ -433,21 +464,15 @@ function App() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-4">
               
-              {/* --- NEW TV BROADCAST PITCH COMPONENT --- */}
+              {/* --- TV BROADCAST PITCH COMPONENT --- */}
               <div className="w-full h-72 bg-gradient-to-b from-green-800 to-green-900 rounded-3xl border-4 border-slate-800 shadow-2xl relative overflow-hidden flex justify-center mt-2">
-                
-                {/* The Pitch Strip */}
                 <div className="w-40 h-full bg-[#d4c1a5] relative border-x-2 border-white/30 shadow-inner flex justify-center">
-                  
-                  {/* Crease Lines */}
                   <div className="absolute top-10 w-full h-1 bg-white opacity-80"></div>
                   <div className="absolute bottom-10 w-full h-1 bg-white opacity-80"></div>
                   
-                  {/* Stumps */}
                   <div className="absolute top-8 flex gap-1"><div className="w-1 h-3 bg-white rounded"></div><div className="w-1 h-3 bg-white rounded"></div><div className="w-1 h-3 bg-white rounded"></div></div>
                   <div className="absolute bottom-8 flex gap-1"><div className="w-1 h-3 bg-white rounded"></div><div className="w-1 h-3 bg-white rounded"></div><div className="w-1 h-3 bg-white rounded"></div></div>
 
-                  {/* 🏃‍♂️ BOWLER AVATAR */}
                   {currentBowler && (
                     <div className="absolute top-1 flex flex-col items-center z-20">
                       <img src={getAvatarUrl(currentBowler.name, bowlTeamColor)} alt="Bowler" className={`w-14 h-14 rounded-full border-4 border-white shadow-lg bg-slate-900 transition-transform ${isBowlingBall ? 'scale-110 -translate-y-2' : ''}`} />
@@ -455,7 +480,6 @@ function App() {
                     </div>
                   )}
 
-                  {/* 🏏 BATTER AVATAR */}
                   {currentBatter && (
                     <div className="absolute bottom-1 flex flex-col items-center z-20">
                       <div className="bg-black/80 px-2 py-0.5 rounded text-[10px] font-bold mb-1 text-white border border-slate-700 shadow-xl">{currentBatter.name}</div>
@@ -463,17 +487,32 @@ function App() {
                     </div>
                   )}
 
-                  {/* ⚾ ANIMATED CRICKET BALL */}
                   {isBowlingBall && (
                     <div className="absolute w-3 h-3 bg-white rounded-full shadow-[0_0_10px_white] animate-bowl z-10 left-1/2"></div>
                   )}
-
                 </div>
+
+                {/* --- NEW: THE TV "SPEED GUN" GRAPHIC OVERLAY --- */}
+                {lastDelivery && !isBowlingBall && (
+                  <div className="absolute bottom-2 left-2 right-2 bg-slate-950/90 backdrop-blur-md border border-slate-700 rounded-lg flex justify-between p-3 z-30 shadow-2xl animate-fade-in ring-1 ring-white/10">
+                    <div className="text-left">
+                      <span className="text-[10px] font-black tracking-widest text-emerald-400 uppercase">Speed Gun</span><br/>
+                      <span className="text-white text-lg font-mono font-bold">{lastDelivery.speed} <span className="text-sm text-slate-500">km/h</span></span>
+                    </div>
+                    <div className="text-center border-l border-r border-slate-700/50 px-4">
+                      <span className="text-[10px] font-black tracking-widest text-cyan-400 uppercase">Pitch Map</span><br/>
+                      <span className="text-white text-sm font-bold uppercase">{lastDelivery.length}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] font-black tracking-widest text-amber-400 uppercase">Shot Zone</span><br/>
+                      <span className="text-white text-sm font-bold uppercase">{lastDelivery.direction || 'NO SHOT'}</span>
+                    </div>
+                  </div>
+                )}
               </div>
               {/* --- END PITCH COMPONENT --- */}
 
-
-              <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-6 border border-slate-700 shadow-xl relative overflow-hidden">
+              <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-6 border border-slate-700 shadow-xl relative overflow-hidden mt-4">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 via-cyan-500 to-blue-500"></div>
                 
                 <div className="absolute top-4 right-6 flex items-center gap-1">
@@ -493,12 +532,10 @@ function App() {
                   </div>
                 </div>
 
-                {/* Streamlined Stats Panel */}
                 <div className="grid grid-cols-2 gap-4 bg-slate-950/50 p-4 rounded-xl border border-slate-700/50">
                   <div>
                     <div className="text-[10px] text-emerald-400 font-bold uppercase mb-1 flex justify-between">
-                      <span>Striker</span>
-                      <span className="text-slate-500">P'ship: {partnership.runs}</span>
+                      <span>Striker</span><span className="text-slate-500">P'ship: {partnership.runs}</span>
                     </div>
                     <div className="text-lg font-mono text-white mt-1">{playerStats[currentBatter?.id]?.runs || 0} <span className="text-sm text-slate-500">({playerStats[currentBatter?.id]?.ballsFaced || 0})</span></div>
                   </div>
@@ -512,7 +549,7 @@ function App() {
               {needsBowlerSelection ? (
                 <div className="bg-slate-900 border border-emerald-500/30 p-6 rounded-3xl shadow-2xl animate-fade-in ring-2 ring-emerald-500/20">
                   <h3 className="text-emerald-400 font-bold uppercase tracking-widest mb-4 flex items-center justify-between">
-                    <span>Select Bowler for Next Over</span><span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded">Quota: {currentRules.maxBowlerOvers} Overs</span>
+                    <span>Select Bowler</span><span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded">Quota: {currentRules.maxBowlerOvers} Overs</span>
                   </h3>
                   <div className="grid grid-cols-2 gap-3">
                     {fieldingTeam.map(p => {
@@ -523,8 +560,7 @@ function App() {
                       const disabled = isMaxedOut || isPrevBowler;
 
                       return (
-                        <button key={p.id} disabled={disabled}
-                          onClick={() => { setCurrentBowler(p); setNeedsBowlerSelection(false); setThisOver([]); }}
+                        <button key={p.id} disabled={disabled} onClick={() => { setCurrentBowler(p); setNeedsBowlerSelection(false); setThisOver([]); }}
                           className={`p-3 rounded-xl flex items-center gap-3 transition-all border ${disabled ? 'bg-slate-950 border-slate-800 opacity-50 cursor-not-allowed' : 'bg-slate-800 border-slate-700 hover:bg-emerald-500 hover:text-black hover:border-emerald-400'}`}
                         >
                           <img src={getAvatarUrl(p.name, bowlTeamColor)} className="w-10 h-10 rounded-full bg-white/10" />
@@ -543,14 +579,14 @@ function App() {
                     {isSimulating ? 'SIMULATING...' : 'BOWL NEXT BALL'}
                   </button>
                   <button onClick={autoSimulate} disabled={isSimulating} className={`px-6 rounded-2xl text-sm font-bold uppercase transition-all shadow-xl ${isSimulating ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-400 active:scale-95'}`}>
-                    ⚡ QUICK SIM
+                    ⚡ SIM
                   </button>
                 </div>
               )}
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col h-[650px]">
-              <h3 className="flex items-center text-lg font-bold text-slate-200 mb-4 pb-4 border-b border-slate-800"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse mr-2"></span>Live AI Commentary</h3>
+              <h3 className="flex items-center text-lg font-bold text-slate-200 mb-4 pb-4 border-b border-slate-800"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse mr-2"></span>Live Commentary Feed</h3>
               <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
                 {commentaryFeed.length === 0 && <p className="text-slate-500 text-center mt-10 italic">Waiting for first ball...</p>}
                 {commentaryFeed.map((comm, idx) => (
