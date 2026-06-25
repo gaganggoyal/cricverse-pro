@@ -5,17 +5,13 @@ import { playerDatabase } from './players';
 const GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY_HERE';
 
 function App() {
-  const [appState, setAppState] = useState('config'); // config, draft, toss, match, inningsBreak, postMatch
-  
-  // --- NEW: CUSTOM TEAM NAMES ---
+  const [appState, setAppState] = useState('config'); 
   const [team1Name, setTeam1Name] = useState('Mumbai Indians');
   const [team2Name, setTeam2Name] = useState('Chennai Super Kings');
-  
   const [team1, setTeam1] = useState([]);
   const [team2, setTeam2] = useState([]);
   const [availablePlayers, setAvailablePlayers] = useState(playerDatabase);
 
-  // --- NEW: TOSS STATE ---
   const [tossWinner, setTossWinner] = useState(null);
   const [isFlipping, setIsFlipping] = useState(false);
 
@@ -33,6 +29,10 @@ function App() {
   const [currentBowler, setCurrentBowler] = useState(null);
   const [partnership, setPartnership] = useState({ runs: 0, balls: 0 });
   const [thisOver, setThisOver] = useState([]); 
+
+  // --- NEW: BOWLER QUOTA STATE ---
+  const [needsBowlerSelection, setNeedsBowlerSelection] = useState(false);
+  const [previousBowler, setPreviousBowler] = useState(null);
 
   const [vfx, setVfx] = useState(null);
   const [isSimulating, setIsSimulating] = useState(false);
@@ -57,33 +57,21 @@ function App() {
     setAvailablePlayers(availablePlayers.filter(p => p.id !== player.id));
   };
 
-  // --- NEW: COIN TOSS LOGIC ---
   const flipCoin = () => {
     setIsFlipping(true);
     setTimeout(() => {
-      const winner = Math.random() > 0.5 ? team1Name : team2Name;
-      setTossWinner(winner);
+      setTossWinner(Math.random() > 0.5 ? team1Name : team2Name);
       setIsFlipping(false);
     }, 1500);
   };
 
   const handleTossChoice = (choice) => {
-    // If the toss winner chooses to BOWL, we swap the teams so Team 2 becomes the batting team (Team 1 internally)
     let finalBattingTeam = team1;
     let finalBowlingTeam = team2;
-    let finalBattingName = team1Name;
-    let finalBowlingName = team2Name;
-
     if ((tossWinner === team1Name && choice === 'Bowl') || (tossWinner === team2Name && choice === 'Bat')) {
-      finalBattingTeam = team2;
-      finalBowlingTeam = team1;
-      finalBattingName = team2Name;
-      finalBowlingName = team1Name;
-      
-      setTeam1(team2);
-      setTeam2(team1);
-      setTeam1Name(team2Name);
-      setTeam2Name(team1Name);
+      finalBattingTeam = team2; finalBowlingTeam = team1;
+      setTeam1(team2); setTeam2(team1);
+      setTeam1Name(team2Name); setTeam2Name(team1Name);
     }
 
     const initialStats = {};
@@ -94,7 +82,11 @@ function App() {
     setPartnership({ runs: 0, balls: 0 });
     setThisOver([]);
     setCurrentBatter(finalBattingTeam.find(p => p.role === 'Batter' || p.role === 'All-Rounder') || finalBattingTeam[0]);
-    setCurrentBowler(finalBowlingTeam.find(p => p.role === 'Bowler' || p.role === 'All-Rounder') || finalBowlingTeam[0]);
+    
+    // START OF INNINGS: Force Bowler Selection
+    setCurrentBowler(null);
+    setPreviousBowler(null);
+    setNeedsBowlerSelection(true);
     setAppState('match');
   };
 
@@ -104,16 +96,17 @@ function App() {
     setPartnership({ runs: 0, balls: 0 });
     setThisOver([]);
     setCurrentBatter(team2.find(p => p.role === 'Batter' || p.role === 'All-Rounder') || team2[0]);
-    setCurrentBowler(team1.find(p => p.role === 'Bowler' || p.role === 'All-Rounder') || team1[0]);
+    
+    // START OF INNINGS 2: Force Bowler Selection
+    setCurrentBowler(null);
+    setPreviousBowler(null);
+    setNeedsBowlerSelection(true);
     setAppState('match');
   };
 
   const generateCommentary = async (result, isWicket, isExtra, batter, bowler) => {
     if (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') return `[API KEY MISSING] Add key at top of App.jsx!`;
-    
-    // Feed the custom team names to the AI!
     let prompt = `You are a live T20 cricket commentator. Match: ${team1Name} vs ${team2Name}. Write ONE short, thrilling sentence of live commentary. Bowler: ${bowler.name}. Batter: ${batter.name}. `;
-    
     if (isWicket) prompt += `Outcome: OUT! It's a spectacular wicket. Make it dramatic.`;
     else if (result === 'Wd') prompt += `Outcome: Wide ball! Terrible line by the bowler.`;
     else if (result === 'Nb') prompt += `Outcome: No ball! The bowler overstepped.`;
@@ -121,13 +114,11 @@ function App() {
     else if (result === 4) prompt += `Outcome: 4 runs! Beautiful boundary.`;
     else if (result === 0) prompt += `Outcome: Dot ball. Good defense or miss.`;
     else prompt += `Outcome: ${result} run(s) taken.`;
-    
     if (innings === 2) prompt += ` Context: ${team2Name} is chasing a target of ${score1 + 1}.`;
 
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.9 } })
       });
       const data = await response.json();
@@ -141,13 +132,11 @@ function App() {
     const result = outcomes[Math.floor(Math.random() * outcomes.length)];
     const isWicket = result === 'W';
     const isExtra = result === 'Wd' || result === 'Nb';
-    const totalRunsThisBall = isWicket ? 0 : isExtra ? 1 : result;
-    const batterRuns = isExtra ? 0 : totalRunsThisBall; 
-    return { result, isWicket, isExtra, totalRunsThisBall, batterRuns };
+    return { result, isWicket, isExtra, totalRunsThisBall: isWicket ? 0 : isExtra ? 1 : result, batterRuns: isExtra ? 0 : (isWicket ? 0 : result) };
   };
 
   const playBall = async () => {
-    if (isSimulating) return;
+    if (isSimulating || needsBowlerSelection) return;
     if (innings === 1 && wickets1 >= 10) return;
     if (innings === 2 && (wickets2 >= 10 || score2 > score1)) return;
 
@@ -188,8 +177,7 @@ function App() {
     const aiText = await generateCommentary(result, isWicket, isExtra, currentBatter, currentBowler);
     
     setCommentaryFeed(prev => {
-      const newFeed = [...prev];
-      newFeed.pop(); 
+      const newFeed = [...prev]; newFeed.pop(); 
       newFeed.push({ ball: currentBalls, text: aiText, runs: result, type: isWicket ? 'wicket' : isExtra ? 'extra' : (result === 6 || result === 4) ? 'boundary' : 'normal' });
       return newFeed;
     });
@@ -200,15 +188,22 @@ function App() {
       if (remainingPlayers.length > 0) setCurrentBatter(remainingPlayers[Math.floor(Math.random() * remainingPlayers.length)]);
     }
 
+    // --- CHECK FOR END OF OVER ---
+    const isEndOfInnings = currentWickets >= 10 || (innings === 2 && currentScore > score1);
+    if (!isExtra && currentBalls > 0 && currentBalls % 6 === 0 && !isEndOfInnings) {
+      setPreviousBowler(currentBowler);
+      setNeedsBowlerSelection(true);
+    }
+
     setTimeout(() => {
       setVfx(null);
       setIsSimulating(false);
-      if (innings === 2 && (currentScore > score1 || currentWickets >= 10)) setAppState('postMatch');
+      if (isEndOfInnings) setAppState('postMatch');
     }, 1200); 
   };
 
   const autoSimulate = () => {
-    if (isSimulating) return;
+    if (isSimulating || needsBowlerSelection) return;
     
     let tempBalls = innings === 1 ? balls1 : balls2;
     let tempScore = innings === 1 ? score1 : score2;
@@ -216,6 +211,7 @@ function App() {
     let tempStats = structuredClone(playerStats);
     let tempBatter = currentBatter;
     let tempBowler = currentBowler;
+    let tempPrevBowler = previousBowler;
     
     while (tempWickets < 10) {
       if (innings === 2 && tempScore > score1) break; 
@@ -233,12 +229,26 @@ function App() {
         const remainingPlayers = battingTeam.filter(p => p.id !== tempBatter.id && tempStats[p.id]?.ballsFaced === 0);
         if (remainingPlayers.length > 0) tempBatter = remainingPlayers[Math.floor(Math.random() * remainingPlayers.length)];
       }
+
+      // --- AUTO ROTATE BOWLERS AT END OF OVER ---
+      if (!isExtra && tempBalls > 0 && tempBalls % 6 === 0 && tempWickets < 10 && !(innings === 2 && tempScore > score1)) {
+        const bowlingTeam = innings === 1 ? team2 : team1;
+        const validBowlers = bowlingTeam.filter(p => p.id !== tempBowler.id && (tempStats[p.id]?.ballsBowled || 0) < 24);
+        
+        let nextBowlers = validBowlers.filter(p => p.role === 'Bowler' || p.role === 'All-Rounder');
+        if (nextBowlers.length === 0) nextBowlers = validBowlers; // Fallback if out of real bowlers
+        if (nextBowlers.length === 0) nextBowlers = bowlingTeam.filter(p => p.id !== tempBowler.id); // Absolute safety fallback
+        
+        tempPrevBowler = tempBowler;
+        tempBowler = nextBowlers[Math.floor(Math.random() * nextBowlers.length)];
+      }
     }
 
     if (innings === 1) { setScore1(tempScore); setWickets1(tempWickets); setBalls1(tempBalls); } 
     else { setScore2(tempScore); setWickets2(tempWickets); setBalls2(tempBalls); }
     
-    setPlayerStats(tempStats); setCurrentBatter(tempBatter); setThisOver([]); 
+    setPlayerStats(tempStats); setCurrentBatter(tempBatter); setCurrentBowler(tempBowler); setPreviousBowler(tempPrevBowler);
+    setThisOver([]); 
     setCommentaryFeed(prev => [...prev, { ball: tempBalls, text: `⚡ Innings auto-simulated to completion.`, type: 'normal' }]);
     if (innings === 2 && (tempScore > score1 || tempWickets >= 10)) setAppState('postMatch');
   };
@@ -248,6 +258,7 @@ function App() {
   const activeBalls = innings === 1 ? balls1 : balls2;
   const overs = Math.floor(activeBalls / 6);
   const legalBalls = activeBalls % 6;
+  const fieldingTeam = innings === 1 ? team2 : team1;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans overflow-hidden relative selection:bg-emerald-500/30">
@@ -270,59 +281,34 @@ function App() {
 
       <main className="max-w-6xl mx-auto p-4 lg:p-8">
         
-        {/* --- 1. NEW CONFIG SCREEN --- */}
         {appState === 'config' && (
           <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl mt-10 animate-fade-in text-center">
             <h2 className="text-3xl font-black mb-8 text-white">Match Setup</h2>
-            
             <div className="space-y-6 mb-8 text-left">
               <div>
                 <label className="block text-emerald-400 font-bold mb-2 uppercase text-xs tracking-widest">Home Team Name</label>
-                <input 
-                  type="text" 
-                  value={team1Name} 
-                  onChange={(e) => setTeam1Name(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white font-bold focus:border-emerald-500 focus:outline-none transition-colors"
-                />
+                <input type="text" value={team1Name} onChange={(e) => setTeam1Name(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white font-bold focus:border-emerald-500 focus:outline-none transition-colors" />
               </div>
               <div>
                 <label className="block text-cyan-400 font-bold mb-2 uppercase text-xs tracking-widest">Away Team Name</label>
-                <input 
-                  type="text" 
-                  value={team2Name} 
-                  onChange={(e) => setTeam2Name(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white font-bold focus:border-cyan-500 focus:outline-none transition-colors"
-                />
+                <input type="text" value={team2Name} onChange={(e) => setTeam2Name(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white font-bold focus:border-cyan-500 focus:outline-none transition-colors" />
               </div>
             </div>
-
-            <button onClick={() => setAppState('draft')} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-black px-8 py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-              PROCEED TO DRAFT ➔
-            </button>
+            <button onClick={() => setAppState('draft')} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-black px-8 py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]">PROCEED TO DRAFT ➔</button>
           </div>
         )}
 
-        {/* --- 2. UPDATED DRAFT SCREEN --- */}
         {appState === 'draft' && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold text-white">Pre-Match Draft</h2>
-              {/* Changed button to go to Toss instead of Match */}
-              <button onClick={() => {
-                if (team1.length === 0 || team2.length === 0) return alert("Draft players first!");
-                setAppState('toss');
-              }} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-8 py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-                PROCEED TO TOSS ➔
-              </button>
+              <button onClick={() => { if (team1.length === 0 || team2.length === 0) return alert("Draft players first!"); setAppState('toss'); }} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-8 py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]">PROCEED TO TOSS ➔</button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
                 {availablePlayers.map(p => (
                   <div key={p.id} className="bg-slate-800 p-3 rounded-lg flex justify-between items-center border border-slate-700">
-                    <div>
-                      <span className="font-bold">{p.name}</span>
-                      <span className="text-xs text-slate-400 ml-2 bg-slate-950 px-2 py-1 rounded">{p.role}</span>
-                    </div>
+                    <div><span className="font-bold">{p.name}</span><span className="text-xs text-slate-400 ml-2 bg-slate-950 px-2 py-1 rounded">{p.role}</span></div>
                     <div className="flex gap-2">
                       <button onClick={() => draftPlayer(p, 1)} className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded font-bold hover:bg-emerald-500 hover:text-black">{team1Name}</button>
                       <button onClick={() => draftPlayer(p, 2)} className="bg-cyan-500/20 text-cyan-400 px-3 py-1 rounded font-bold hover:bg-cyan-500 hover:text-black">{team2Name}</button>
@@ -334,59 +320,37 @@ function App() {
           </div>
         )}
 
-        {/* --- 3. NEW COIN TOSS SCREEN --- */}
         {appState === 'toss' && (
           <div className="max-w-2xl mx-auto bg-slate-900 border border-slate-800 p-12 rounded-3xl shadow-2xl mt-10 animate-fade-in text-center">
             <h2 className="text-4xl font-black mb-8 text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">THE COIN TOSS</h2>
-            
             <div className="flex justify-center items-center gap-8 mb-12">
-              <div className="text-xl font-bold text-emerald-400">{team1Name}</div>
-              <div className="text-slate-500 font-black italic">VS</div>
-              <div className="text-xl font-bold text-cyan-400">{team2Name}</div>
+              <div className="text-xl font-bold text-emerald-400">{team1Name}</div><div className="text-slate-500 font-black italic">VS</div><div className="text-xl font-bold text-cyan-400">{team2Name}</div>
             </div>
-
             {!tossWinner ? (
-              <button 
-                onClick={flipCoin} 
-                disabled={isFlipping}
-                className={`w-40 h-40 rounded-full mx-auto flex items-center justify-center text-4xl font-black transition-all border-4 
-                  ${isFlipping ? 'bg-amber-500 border-amber-300 animate-spin text-black scale-110' : 'bg-slate-800 border-slate-600 text-white hover:bg-slate-700 hover:scale-105 shadow-[0_0_30px_rgba(255,255,255,0.1)]'}`}
-              >
+              <button onClick={flipCoin} disabled={isFlipping} className={`w-40 h-40 rounded-full mx-auto flex items-center justify-center text-4xl font-black transition-all border-4 ${isFlipping ? 'bg-amber-500 border-amber-300 animate-spin text-black scale-110' : 'bg-slate-800 border-slate-600 text-white hover:bg-slate-700 hover:scale-105 shadow-[0_0_30px_rgba(255,255,255,0.1)]'}`}>
                 {isFlipping ? '🪙' : 'FLIP'}
               </button>
             ) : (
               <div className="animate-fade-in">
                 <div className="text-3xl font-black text-white mb-2">{tossWinner}</div>
                 <div className="text-slate-400 font-bold uppercase tracking-widest mb-8">won the toss and elected to...</div>
-                
                 <div className="flex gap-6 justify-center">
-                  <button onClick={() => handleTossChoice('Bat')} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-12 py-5 rounded-2xl text-xl shadow-xl hover:scale-105 transition-all">
-                    🏏 BAT FIRST
-                  </button>
-                  <button onClick={() => handleTossChoice('Bowl')} className="bg-cyan-500 hover:bg-cyan-400 text-black font-black px-12 py-5 rounded-2xl text-xl shadow-xl hover:scale-105 transition-all">
-                    🥎 BOWL FIRST
-                  </button>
+                  <button onClick={() => handleTossChoice('Bat')} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-12 py-5 rounded-2xl text-xl shadow-xl hover:scale-105 transition-all">🏏 BAT FIRST</button>
+                  <button onClick={() => handleTossChoice('Bowl')} className="bg-cyan-500 hover:bg-cyan-400 text-black font-black px-12 py-5 rounded-2xl text-xl shadow-xl hover:scale-105 transition-all">🥎 BOWL FIRST</button>
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {/* --- 4. LIVE MATCH DASHBOARD --- */}
         {appState === 'match' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
               
               {innings === 2 && (
                 <div className="bg-cyan-950/50 border border-cyan-500/30 rounded-2xl p-4 flex justify-between items-center shadow-[0_0_15px_rgba(6,182,212,0.1)]">
-                  <div>
-                    <span className="text-cyan-400 font-bold uppercase text-sm tracking-widest block">Run Chase Target</span>
-                    <span className="text-3xl font-black text-white">{score1 + 1}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-emerald-400 font-bold uppercase text-sm tracking-widest block">Need</span>
-                    <span className="text-2xl font-black text-white">{(score1 + 1) - score2 > 0 ? (score1 + 1) - score2 : 0} runs</span>
-                  </div>
+                  <div><span className="text-cyan-400 font-bold uppercase text-sm tracking-widest block">Run Chase Target</span><span className="text-3xl font-black text-white">{score1 + 1}</span></div>
+                  <div className="text-right"><span className="text-emerald-400 font-bold uppercase text-sm tracking-widest block">Need</span><span className="text-2xl font-black text-white">{(score1 + 1) - score2 > 0 ? (score1 + 1) - score2 : 0} runs</span></div>
                 </div>
               )}
 
@@ -396,29 +360,19 @@ function App() {
                 <div className="absolute top-4 right-8 flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-widest mr-2">This Over:</span>
                   {thisOver.map((ball, idx) => (
-                    <div key={idx} className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shadow-inner
-                      ${ball === 'W' ? 'bg-red-500 text-white' : ball === 'Wd' || ball === 'Nb' ? 'bg-amber-500 text-black' : ball === 6 || ball === 4 ? 'bg-emerald-500 text-black' : 'bg-slate-700 text-white'}`}>
-                      {ball}
-                    </div>
+                    <div key={idx} className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shadow-inner ${ball === 'W' ? 'bg-red-500 text-white' : ball === 'Wd' || ball === 'Nb' ? 'bg-amber-500 text-black' : ball === 6 || ball === 4 ? 'bg-emerald-500 text-black' : 'bg-slate-700 text-white'}`}>{ball}</div>
                   ))}
                   {thisOver.length === 0 && <span className="text-sm text-slate-600 italic">Waiting...</span>}
                 </div>
 
                 <div className="flex justify-between items-end mb-8 mt-6">
                   <div>
-                    {/* UI UPDATED TO SHOW CUSTOM TEAM NAMES */}
-                    <h3 className="text-slate-400 font-bold uppercase tracking-widest text-sm mb-2">
-                      {innings === 1 ? team1Name : team2Name} Batting
-                    </h3>
-                    <div className="text-7xl font-black tracking-tighter font-mono flex items-baseline gap-2">
-                      {activeScore}<span className="text-4xl text-slate-500">/{activeWickets}</span>
-                    </div>
+                    <h3 className="text-slate-400 font-bold uppercase tracking-widest text-sm mb-2">{innings === 1 ? team1Name : team2Name} Batting</h3>
+                    <div className="text-7xl font-black tracking-tighter font-mono flex items-baseline gap-2">{activeScore}<span className="text-4xl text-slate-500">/{activeWickets}</span></div>
                   </div>
                   <div className="text-right">
                     <h3 className="text-slate-400 font-bold uppercase tracking-widest text-sm mb-2">Overs</h3>
-                    <div className="text-5xl font-black text-cyan-400 font-mono">
-                      {overs}.{legalBalls}
-                    </div>
+                    <div className="text-5xl font-black text-cyan-400 font-mono">{overs}.{legalBalls}</div>
                   </div>
                 </div>
 
@@ -431,24 +385,55 @@ function App() {
                   <div>
                     <div className="text-xs text-emerald-400 font-bold uppercase mb-1">🏏 Striker</div>
                     <div className="font-bold text-xl">{currentBatter?.name || 'TBD'}</div>
-                    <div className="text-sm font-mono text-slate-400 mt-1">
-                      {playerStats[currentBatter?.id]?.runs || 0} runs <span className="text-slate-600">({playerStats[currentBatter?.id]?.ballsFaced || 0} balls)</span>
-                    </div>
+                    <div className="text-sm font-mono text-slate-400 mt-1">{playerStats[currentBatter?.id]?.runs || 0} runs <span className="text-slate-600">({playerStats[currentBatter?.id]?.ballsFaced || 0} balls)</span></div>
                   </div>
                   <div className="text-right">
                     <div className="text-xs text-cyan-400 font-bold uppercase mb-1">🥎 Bowler</div>
-                    <div className="font-bold text-xl">{currentBowler?.name || 'TBD'}</div>
-                    <div className="text-sm font-mono text-slate-400 mt-1">
-                      {playerStats[currentBowler?.id]?.wickets || 0} W <span className="text-slate-600">/ {playerStats[currentBowler?.id]?.runsGiven || 0} runs</span>
-                    </div>
+                    <div className="font-bold text-xl">{currentBowler?.name || 'Waiting...'}</div>
+                    <div className="text-sm font-mono text-slate-400 mt-1">{playerStats[currentBowler?.id]?.wickets || 0} W <span className="text-slate-600">/ {playerStats[currentBowler?.id]?.runsGiven || 0} runs</span></div>
                   </div>
                 </div>
               </div>
 
+              {/* --- DYNAMIC ACTION PANEL --- */}
               {innings === 1 && activeWickets >= 10 ? (
-                <button onClick={() => setAppState('inningsBreak')} className="w-full py-6 rounded-2xl text-2xl font-black uppercase tracking-widest transition-all shadow-xl bg-cyan-500 text-slate-950 hover:bg-cyan-400 animate-pulse">
-                  PROCEED TO INNINGS BREAK ➔
-                </button>
+                <button onClick={() => setAppState('inningsBreak')} className="w-full py-6 rounded-2xl text-2xl font-black uppercase tracking-widest transition-all shadow-xl bg-cyan-500 text-slate-950 hover:bg-cyan-400 animate-pulse">PROCEED TO INNINGS BREAK ➔</button>
+              ) : needsBowlerSelection ? (
+                // --- NEW: BOWLER SELECTION MODAL ---
+                <div className="bg-slate-900 border border-emerald-500/30 p-6 rounded-3xl shadow-2xl animate-fade-in ring-2 ring-emerald-500/20">
+                  <h3 className="text-emerald-400 font-bold uppercase tracking-widest mb-4 flex items-center justify-between">
+                    <span>Select Bowler for Next Over</span>
+                    <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded">Quota: 4 Overs Max</span>
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    {fieldingTeam.map(p => {
+                      const stats = playerStats[p.id];
+                      const oversBowled = Math.floor(stats.ballsBowled / 6);
+                      const isMaxedOut = stats.ballsBowled >= 24;
+                      const isPrevBowler = previousBowler?.id === p.id;
+                      const disabled = isMaxedOut || isPrevBowler;
+
+                      return (
+                        <button 
+                          key={p.id} 
+                          disabled={disabled}
+                          onClick={() => {
+                            setCurrentBowler(p);
+                            setNeedsBowlerSelection(false);
+                            setThisOver([]); // Reset the visual over tracker
+                          }}
+                          className={`p-3 rounded-xl flex flex-col items-start transition-all border
+                            ${disabled ? 'bg-slate-950 border-slate-800 opacity-50 cursor-not-allowed' : 'bg-slate-800 border-slate-700 hover:bg-emerald-500 hover:text-black hover:border-emerald-400'}`}
+                        >
+                          <span className="font-bold">{p.name}</span>
+                          <span className="text-xs mt-1 font-mono">
+                            {isMaxedOut ? '🔒 Quota Reached' : isPrevBowler ? '⏳ Resting' : `${oversBowled}/4 Overs Bowled`}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
               ) : (
                 <div className="flex gap-4">
                   <button onClick={playBall} disabled={isSimulating} className={`flex-1 py-6 rounded-2xl text-2xl font-black uppercase tracking-widest transition-all shadow-xl ${isSimulating ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 active:scale-95'}`}>
@@ -462,17 +447,12 @@ function App() {
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col h-[500px]">
-              <h3 className="flex items-center text-lg font-bold text-slate-200 mb-4 pb-4 border-b border-slate-800">
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse mr-2"></span>Live AI Commentary
-              </h3>
+              <h3 className="flex items-center text-lg font-bold text-slate-200 mb-4 pb-4 border-b border-slate-800"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse mr-2"></span>Live AI Commentary</h3>
               <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
                 {commentaryFeed.length === 0 && <p className="text-slate-500 text-center mt-10 italic">Waiting for first ball...</p>}
                 {commentaryFeed.map((comm, idx) => (
                   <div key={idx} className="animate-fade-in flex gap-3">
-                    <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm font-mono
-                      ${comm.type === 'wicket' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 
-                        comm.type === 'extra' ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' : 
-                        comm.type === 'boundary' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}`}>
+                    <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm font-mono ${comm.type === 'wicket' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : comm.type === 'extra' ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' : comm.type === 'boundary' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}`}>
                       {comm.runs !== undefined ? comm.runs : '⚡'}
                     </div>
                     <div className="bg-slate-800/50 p-3 rounded-r-xl rounded-bl-xl text-sm border border-slate-700/50 flex-1">{comm.text}</div>
@@ -491,9 +471,7 @@ function App() {
               <div className="text-sm text-slate-500 font-bold uppercase tracking-widest mb-2">{team1Name} Final Score</div>
               <div className="text-8xl font-black text-white font-mono mb-2">{score1}<span className="text-5xl text-slate-600">/{wickets1}</span></div>
             </div>
-            <button onClick={startSecondInnings} className="bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-black px-12 py-5 rounded-2xl text-xl hover:scale-[1.02] active:scale-95 transition-all w-full md:w-auto">
-              START 2ND INNINGS ➔
-            </button>
+            <button onClick={startSecondInnings} className="bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-black px-12 py-5 rounded-2xl text-xl hover:scale-[1.02] active:scale-95 transition-all w-full md:w-auto">START 2ND INNINGS ➔</button>
           </div>
         )}
 
@@ -518,9 +496,7 @@ function App() {
                   </div>
                   {team1.map(p => playerStats[p.id]?.ballsFaced > 0 && (
                     <div key={p.id} className="flex text-sm items-center py-1 border-b border-slate-800/50">
-                      <div className="flex-1 font-bold">{p.name}</div>
-                      <div className="w-12 text-center font-mono text-emerald-400">{playerStats[p.id].runs}</div>
-                      <div className="w-12 text-center font-mono text-slate-400">{playerStats[p.id].ballsFaced}</div>
+                      <div className="flex-1 font-bold">{p.name}</div><div className="w-12 text-center font-mono text-emerald-400">{playerStats[p.id].runs}</div><div className="w-12 text-center font-mono text-slate-400">{playerStats[p.id].ballsFaced}</div>
                     </div>
                   ))}
                 </div>
@@ -537,20 +513,13 @@ function App() {
                   </div>
                   {team2.map(p => playerStats[p.id]?.ballsFaced > 0 && (
                     <div key={p.id} className="flex text-sm items-center py-1 border-b border-slate-800/50">
-                      <div className="flex-1 font-bold">{p.name}</div>
-                      <div className="w-12 text-center font-mono text-cyan-400">{playerStats[p.id].runs}</div>
-                      <div className="w-12 text-center font-mono text-slate-400">{playerStats[p.id].ballsFaced}</div>
+                      <div className="flex-1 font-bold">{p.name}</div><div className="w-12 text-center font-mono text-cyan-400">{playerStats[p.id].runs}</div><div className="w-12 text-center font-mono text-slate-400">{playerStats[p.id].ballsFaced}</div>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
-
-            <div className="text-center">
-              <button onClick={() => window.location.reload()} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-4 rounded-xl transition-colors border border-slate-700 shadow-xl">
-                ↻ Start New Match
-              </button>
-            </div>
+            <div className="text-center"><button onClick={() => window.location.reload()} className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-4 rounded-xl transition-colors border border-slate-700 shadow-xl">↻ Start New Match</button></div>
           </div>
         )}
       </main>
