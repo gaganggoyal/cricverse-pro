@@ -1,7 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { playerDatabase } from './players';
 
+<<<<<<< Updated upstream
 // 🚨 PASTE YOUR API KEY HERE!
+=======
+// ⚠️ PASTE YOUR API KEY HERE
+>>>>>>> Stashed changes
 const GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY_HERE';
 
 function App() {
@@ -25,11 +29,32 @@ function App() {
   
   const [vfx, setVfx] = useState(null);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [isMuted, setIsMuted] = useState(false); // NEW: Audio State
   const commentaryEndRef = useRef(null);
 
   useEffect(() => {
     commentaryEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [commentaryFeed]);
+
+// --- LOCAL AUDIO SYSTEM (BULLETPROOF) ---
+  const playAudio = (type) => {
+    if (isMuted) return;
+    
+    // Because the files are in the 'public' folder, Vite automatically knows 
+    // to look at the root ('/') to find them!
+    const sounds = {
+      hit: '/hit.mp3',
+      cheer: '/cheer.mp3',
+      out: '/out.mp3'
+    };
+    
+    const audio = new Audio(sounds[type]);
+    audio.volume = type === 'hit' ? 1.0 : 0.4;
+    
+    audio.play().catch(e => {
+      console.warn("Browser blocked audio:", e.message);
+    });
+  };
 
   const draftPlayer = (player, team) => {
     if (team === 1) setTeam1([...team1, player]);
@@ -92,8 +117,17 @@ function App() {
     const isWicket = result === 'W';
     const runs = isWicket ? 0 : result;
 
-    if (runs === 6 || runs === 4) setVfx('rocket');
-    if (isWicket) setVfx('explosion');
+    // --- TRIGGER AUDIO & VFX ---
+    if (isWicket) {
+      setVfx('explosion');
+      playAudio('out');
+    } else {
+      if (runs > 0) playAudio('hit');
+      if (runs === 6 || runs === 4) {
+        setVfx('rocket');
+        setTimeout(() => playAudio('cheer'), 300); // Slight delay for the cheer
+      }
+    }
 
     const currentBalls = (innings === 1 ? balls1 : balls2) + 1;
     const currentScore = (innings === 1 ? score1 : score2) + runs;
@@ -144,7 +178,6 @@ function App() {
     }, 1200); 
   };
 
-  // --- NEW: AUTO SIMULATE INNINGS ---
   const autoSimulate = () => {
     if (isSimulating) return;
     
@@ -157,10 +190,8 @@ function App() {
     
     const outcomes = [0, 1, 1, 2, 4, 4, 6, 'W'];
 
-    // Instantly loop until the innings is over
     while (tempWickets < 10) {
-      if (innings === 2 && tempScore > score1) break; // Stop if target reached
-
+      if (innings === 2 && tempScore > score1) break; 
       const result = outcomes[Math.floor(Math.random() * outcomes.length)];
       const isWicket = result === 'W';
       const runs = isWicket ? 0 : result;
@@ -185,25 +216,16 @@ function App() {
       }
     }
 
-    // Apply all calculated stats instantly
     if (innings === 1) {
-      setScore1(tempScore);
-      setWickets1(tempWickets);
-      setBalls1(tempBalls);
+      setScore1(tempScore); setWickets1(tempWickets); setBalls1(tempBalls);
     } else {
-      setScore2(tempScore);
-      setWickets2(tempWickets);
-      setBalls2(tempBalls);
+      setScore2(tempScore); setWickets2(tempWickets); setBalls2(tempBalls);
     }
     
     setPlayerStats(tempStats);
     setCurrentBatter(tempBatter);
-    
     setCommentaryFeed(prev => [...prev, { ball: tempBalls, text: `⚡ Innings auto-simulated to completion.`, type: 'normal' }]);
-
-    if (innings === 2 && (tempScore > score1 || tempWickets >= 10)) {
-      setAppState('postMatch');
-    }
+    if (innings === 2 && (tempScore > score1 || tempWickets >= 10)) setAppState('postMatch');
   };
 
   const activeScore = innings === 1 ? score1 : score2;
@@ -222,15 +244,24 @@ function App() {
           <h1 className="text-3xl font-black italic tracking-tighter uppercase text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">
             CRICVERSE <span className="text-white">PRO</span>
           </h1>
-          <div className="text-sm font-bold bg-emerald-500/20 text-emerald-400 px-4 py-1 rounded-full border border-emerald-500/30">
-            {appState === 'postMatch' ? 'FULL TIME' : appState === 'match' ? `INNINGS ${innings} LIVE` : 'STUDIO SETUP'}
+          <div className="flex gap-4 items-center">
+            {/* NEW MUTE BUTTON */}
+            <button 
+              onClick={() => setIsMuted(!isMuted)} 
+              className="text-2xl hover:scale-110 transition-transform"
+              title={isMuted ? "Unmute" : "Mute"}
+            >
+              {isMuted ? '🔇' : '🔊'}
+            </button>
+            <div className="text-sm font-bold bg-emerald-500/20 text-emerald-400 px-4 py-1 rounded-full border border-emerald-500/30">
+              {appState === 'postMatch' ? 'FULL TIME' : appState === 'match' ? `INNINGS ${innings} LIVE` : 'STUDIO SETUP'}
+            </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto p-4 lg:p-8">
         
-        {/* --- DRAFT SCREEN --- */}
         {(appState === 'config' || appState === 'draft') && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl">
             <div className="flex justify-between items-center mb-6">
@@ -259,7 +290,6 @@ function App() {
           </div>
         )}
 
-        {/* --- LIVE MATCH DASHBOARD --- */}
         {appState === 'match' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
@@ -312,7 +342,6 @@ function App() {
                 </div>
               </div>
 
-              {/* --- UPGRADED BUTTONS --- */}
               {innings === 1 && activeWickets >= 10 ? (
                 <button onClick={() => setAppState('inningsBreak')} className="w-full py-6 rounded-2xl text-2xl font-black uppercase tracking-widest transition-all shadow-xl bg-cyan-500 text-slate-950 hover:bg-cyan-400 animate-pulse">
                   PROCEED TO INNINGS BREAK ➔
@@ -327,8 +356,6 @@ function App() {
                   >
                     {isSimulating ? 'SIMULATING...' : 'BOWL NEXT BALL'}
                   </button>
-                  
-                  {/* NEW AUTO-SIM BUTTON */}
                   <button 
                     onClick={autoSimulate}
                     disabled={isSimulating}
@@ -376,7 +403,6 @@ function App() {
           </div>
         )}
 
-        {/* --- POST MATCH FULL SCORECARD --- */}
         {appState === 'postMatch' && (
           <div className="max-w-6xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl mt-10 animate-fade-in">
             <div className="text-center mb-10">
