@@ -1,11 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { playerDatabase } from './players';
 
-<<<<<<< Updated upstream
 // 🚨 PASTE YOUR API KEY HERE!
-=======
 // ⚠️ PASTE YOUR API KEY HERE
->>>>>>> Stashed changes
 const GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY_HERE';
 
 function App() {
