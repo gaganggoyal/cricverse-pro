@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { playerDatabase } from './players';
 
 // ⚠️ PASTE YOUR API KEY HERE
-const GEMINI_API_KEY = 'AQ.Ab8RN6I87Wir3iRdpMP6MI09fvFC3TuE3sFjjCIGu6Su3wEQhA';
+const GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY_HERE';
 
 function App() {
   const [appState, setAppState] = useState('config'); // config, draft, match
@@ -58,7 +58,7 @@ function App() {
     else prompt += `Outcome: ${runs} run(s) taken.`;
 
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
