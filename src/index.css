@@ -1,1 +1,22 @@
 @import "tailwindcss";
+
+@theme {
+  --animate-rocket: rocket 1s ease-in-out forwards;
+  --animate-explosion: explosion 0.7s ease-out forwards;
+  --animate-fade-in: fadeIn 0.5s ease-out;
+
+  @keyframes rocket {
+    0% { transform: translateY(50px) scale(0.5); opacity: 0; }
+    20% { opacity: 1; }
+    100% { transform: translateY(-300px) translatex(100px) scale(3); opacity: 0; }
+  }
+  @keyframes explosion {
+    0% { transform: scale(0.1); opacity: 0; filter: hue-rotate(0deg); }
+    50% { opacity: 1; transform: scale(3); filter: hue-rotate(20deg); }
+    100% { transform: scale(4); opacity: 0; }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
