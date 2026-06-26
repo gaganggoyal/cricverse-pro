@@ -7,29 +7,30 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   
   // Auth Form State
-  const [authMode, setAuthMode] = useState('login'); // 'login', 'register', 'otp', 'forgot'
+  const [authMode, setAuthMode] = useState('login'); 
   const [formData, setFormData] = useState({ name: '', username: '', email: '', mobile: '', password: '', referral: '', agreeTerms: false });
   const [otpValue, setOtpValue] = useState('');
   const [authError, setAuthError] = useState('');
   const [authSuccess, setAuthSuccess] = useState('');
 
-  // Dashboard & Scorecard State
+  // Dashboard State
   const [matchHistory, setMatchHistory] = useState([]);
   const [viewingScorecard, setViewingScorecard] = useState(null);
 
-  // Match Config & Draft State
+  // Match Config & Setup Flow State
+  const [matchFormat, setMatchFormat] = useState('T20'); // 'T10' or 'T20'
   const [team1Name, setTeam1Name] = useState('Mumbai Indians');
   const [team2Name, setTeam2Name] = useState('Chennai Super Kings');
   const [team1, setTeam1] = useState([]);
   const [team2, setTeam2] = useState([]);
   const [search1, setSearch1] = useState('');
   const [search2, setSearch2] = useState('');
-
+  
   // Interactive Toss State
-  const [tossPhase, setTossPhase] = useState('call'); // 'call', 'flip', 'decision', 'result'
+  const [tossPhase, setTossPhase] = useState('call'); 
   const [coinFace, setCoinFace] = useState('?');
   const [tossWinnerTeam, setTossWinnerTeam] = useState('');
-  const [matchDecision, setMatchDecision] = useState(''); // 'Bat' or 'Bowl'
+  const [matchDecision, setMatchDecision] = useState(''); 
 
   // Server-Driven Live State
   const [serverId, setServerId] = useState(null);
@@ -40,7 +41,7 @@ function App() {
 
   useEffect(() => { commentaryEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [commentaryFeed]);
 
-  // LOCAL STORAGE: Remember User on Mount
+  // LOCAL STORAGE
   useEffect(() => {
     const savedUser = localStorage.getItem('cricverse_user');
     if (savedUser) {
@@ -85,9 +86,7 @@ function App() {
 
   const handleLogout = () => {
       localStorage.removeItem('cricverse_user');
-      setCurrentUser(null);
-      setAppState('auth');
-      setAuthMode('login');
+      setCurrentUser(null); setAppState('auth'); setAuthMode('login');
       setFormData({ name: '', username: '', email: '', mobile: '', password: '', referral: '', agreeTerms: false });
   };
 
@@ -95,61 +94,24 @@ function App() {
     setAuthError(''); setAuthSuccess('');
     if (!formData.username || !formData.password) return setAuthError("Please fill in all fields.");
     try {
-      const res = await fetch(`http://127.0.0.1:8000/login`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: formData.username, password: formData.password })
-      });
+      const res = await fetch(`http://127.0.0.1:8000/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: formData.username, password: formData.password }) });
       const data = await res.json();
       if (data.error) return setAuthError(data.error);
-      
-      localStorage.setItem('cricverse_user', JSON.stringify(data)); // Save cookie
-      setCurrentUser(data);
-      fetchHistory(data.id);
-      setAppState('dashboard');
-    } catch (err) { setAuthError("We are unable to reach the servers right now. Please check your connection."); }
-  };
-
-  const handleRegisterInitiate = () => {
-    setAuthError(''); setAuthSuccess('');
-    if (!formData.name || !formData.username || !formData.mobile || !formData.password) return setAuthError("Please fill out all mandatory fields.");
-    if (!formData.agreeTerms) return setAuthError("You must agree to the Terms & Conditions.");
-    setAuthMode('otp'); 
+      localStorage.setItem('cricverse_user', JSON.stringify(data));
+      setCurrentUser(data); fetchHistory(data.id); setAppState('dashboard');
+    } catch (err) { setAuthError("Servers offline."); }
   };
 
   const handleVerifyOTP = async () => {
     setAuthError('');
     if (otpValue !== "123456") return setAuthError("Invalid OTP. (Hint: Use 123456)");
     try {
-      const res = await fetch(`http://127.0.0.1:8000/register`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            name: formData.name, username: formData.username, mobile: formData.mobile, 
-            email: formData.email, password: formData.password, referral_code: formData.referral 
-        })
-      });
+      const res = await fetch(`http://127.0.0.1:8000/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: formData.name, username: formData.username, mobile: formData.mobile, email: formData.email, password: formData.password, referral_code: formData.referral }) });
       const data = await res.json();
       if (data.error) return setAuthError(data.error);
-      
-      localStorage.setItem('cricverse_user', JSON.stringify(data)); // Save cookie
-      setCurrentUser(data);
-      fetchHistory(data.id);
-      setAppState('dashboard');
-    } catch (err) { setAuthError("We are unable to reach the servers right now."); }
-  };
-
-  const handleForgotPassword = async () => {
-      setAuthError(''); setAuthSuccess('');
-      if (!formData.username || !formData.mobile || !formData.password) return setAuthError("Provide Username, Mobile, and your New Password.");
-      try {
-        const res = await fetch(`http://127.0.0.1:8000/reset-password`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: formData.username, mobile: formData.mobile, new_password: formData.password })
-        });
-        const data = await res.json();
-        if (data.error) return setAuthError(data.error);
-        setAuthSuccess("Password successfully updated. You can now login.");
-        setAuthMode('login');
-      } catch (err) { setAuthError("Server unreachable."); }
+      localStorage.setItem('cricverse_user', JSON.stringify(data));
+      setCurrentUser(data); fetchHistory(data.id); setAppState('dashboard');
+    } catch (err) { setAuthError("Servers offline."); }
   };
 
   const fetchHistory = async (userId) => {
@@ -164,7 +126,6 @@ function App() {
     if (match.status === 'In Progress') {
         setServerId(match.id);
         setAppState('match');
-        // VITAL FIX: Tell backend to resume loop if it was paused
         fetch(`http://127.0.0.1:8000/matches/${match.id}/start`, { method: 'POST' });
     } else {
         try {
@@ -176,9 +137,11 @@ function App() {
     }
   };
 
+  // --- DRAFT & STRATEGY LOGIC ---
   const addPlayerToTeam = (player, teamNum) => {
-    if (teamNum === 1 && !team1.find(p => p.id === player.id) && team1.length < 11) setTeam1([...team1, player]);
-    if (teamNum === 2 && !team2.find(p => p.id === player.id) && team2.length < 11) setTeam2([...team2, player]);
+    const newPlayer = { ...player, isCaptain: false, allocated_overs: 0 };
+    if (teamNum === 1 && team1.length < 11) setTeam1([...team1, newPlayer]);
+    if (teamNum === 2 && team2.length < 11) setTeam2([...team2, newPlayer]);
   };
 
   const removePlayer = (playerId, teamNum) => {
@@ -186,7 +149,11 @@ function App() {
     if (teamNum === 2) setTeam2(team2.filter(p => p.id !== playerId));
   };
 
-  // Upgraded Alphabetical Search Engine
+  const setCaptain = (playerId, teamNum) => {
+      const updateTeam = (team) => team.map(p => p.id === playerId ? { ...p, isCaptain: true } : { ...p, isCaptain: false });
+      teamNum === 1 ? setTeam1(updateTeam(team1)) : setTeam2(updateTeam(team2));
+  };
+
   const getFilteredPlayers = (query) => {
       if (!query) return [];
       const lowerQuery = query.toLowerCase();
@@ -195,13 +162,52 @@ function App() {
           .sort((a, b) => {
               const aStarts = a.name.toLowerCase().startsWith(lowerQuery);
               const bStarts = b.name.toLowerCase().startsWith(lowerQuery);
-              if (aStarts && !bStarts) return -1; // Push exact starts to top
+              if (aStarts && !bStarts) return -1; 
               if (!aStarts && bStarts) return 1;
-              return a.name.localeCompare(b.name); // Alphabetize the rest
+              return a.name.localeCompare(b.name);
           });
   };
 
-  // Interactive Toss Flow
+  const movePlayerOrder = (teamNum, index, direction) => {
+      const team = teamNum === 1 ? [...team1] : [...team2];
+      if (direction === 'up' && index > 0) {
+          [team[index - 1], team[index]] = [team[index], team[index - 1]];
+      } else if (direction === 'down' && index < team.length - 1) {
+          [team[index + 1], team[index]] = [team[index], team[index + 1]];
+      }
+      teamNum === 1 ? setTeam1(team) : setTeam2(team);
+  };
+
+  const updateBowlerQuota = (teamNum, playerId, delta) => {
+      const totalOversAllowed = matchFormat === 'T10' ? 10 : 20;
+      const maxPerBowler = matchFormat === 'T10' ? 2 : 4;
+      const team = teamNum === 1 ? [...team1] : [...team2];
+      
+      const currentTotal = team.reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
+      const playerIndex = team.findIndex(p => p.id === playerId);
+      const currentVal = team[playerIndex].allocated_overs || 0;
+      
+      let newVal = currentVal + delta;
+      if (newVal < 0) newVal = 0;
+      if (newVal > maxPerBowler) newVal = maxPerBowler;
+      
+      // Prevent exceeding total match overs
+      if (delta > 0 && currentTotal >= totalOversAllowed) return; 
+
+      team[playerIndex].allocated_overs = newVal;
+      teamNum === 1 ? setTeam1(team) : setTeam2(team);
+  };
+
+  const validateStrategy = () => {
+      const requiredOvers = matchFormat === 'T10' ? 10 : 20;
+      const t1Overs = team1.reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
+      const t2Overs = team2.reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
+      
+      if (t1Overs !== requiredOvers) return alert(`Allocate exactly ${requiredOvers} bowling overs for ${team1Name}. Currently: ${t1Overs}`);
+      if (t2Overs !== requiredOvers) return alert(`Allocate exactly ${requiredOvers} bowling overs for ${team2Name}. Currently: ${t2Overs}`);
+      setAppState('review');
+  };
+
   const startTossFlip = () => {
       setTossPhase('flip');
       setTimeout(() => {
@@ -217,25 +223,27 @@ function App() {
       let battingFirst = team1;
       let bowlingFirst = team2;
       
-      // Calculate who bats based on the captain's decision
-      if ((tossWinnerTeam === team1Name && matchDecision === 'Bowl') || 
-          (tossWinnerTeam === team2Name && matchDecision === 'Bat')) {
+      if ((tossWinnerTeam === team1Name && matchDecision === 'Bowl') || (tossWinnerTeam === team2Name && matchDecision === 'Bat')) {
           battingFirst = team2; bowlingFirst = team1;
       }
 
-      const createRes = await fetch('http://127.0.0.1:8000/matches/', { 
+      const res = await fetch('http://127.0.0.1:8000/matches/', { 
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: currentUser.id, batting_team: battingFirst, bowling_team: bowlingFirst })
+        body: JSON.stringify({ user_id: currentUser.id, batting_team: battingFirst, bowling_team: bowlingFirst, format: matchFormat })
       });
       
-      const matchData = await createRes.json();
+      const matchData = await res.json();
       setServerId(matchData.id);
       await fetch(`http://127.0.0.1:8000/matches/${matchData.id}/start`, { method: 'POST' });
       setAppState('match');
     } catch (err) { alert("Error connecting to server."); }
   };
 
-  // Safe Server Data Variables
+  // Safe Math & Helpers
+  const t1OversTotal = team1.reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
+  const t2OversTotal = team2.reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
+  const totalFormatOvers = matchFormat === 'T10' ? 10 : 20;
+
   const activeScore = serverData?.score || 0;
   const activeWickets = serverData?.wickets || 0;
   const activeBalls = serverData?.balls || 0;
@@ -246,13 +254,12 @@ function App() {
   const lastDelivery = serverData?.last_delivery;
   const thisOver = serverData?.recent_overs || [];
   
-  const cap1 = team1[0]?.name || "Captain 1";
-  const cap2 = team2[0]?.name || "Captain 2";
+  const cap1 = team1.find(p => p.isCaptain)?.name || "Captain 1";
+  const cap2 = team2.find(p => p.isCaptain)?.name || "Captain 2";
 
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans overflow-hidden">
       
-      {/* REVOLVING COIN CSS */}
       <style>{`
         .coin-container { display: flex; justify-content: center; align-items: center; height: 140px; perspective: 800px; }
         .coin { width: 120px; height: 120px; border-radius: 50%; transform-style: preserve-3d; display: flex; justify-content: center; align-items: center; }
@@ -294,25 +301,9 @@ function App() {
               <div className="space-y-4 text-left">
                 <input type="text" placeholder="Username" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
                 <input type="password" placeholder="Password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white mb-2 focus:border-emerald-500 outline-none" />
-                
-                <div className="text-right mb-4">
-                    <button onClick={() => setAuthMode('forgot')} className="text-xs text-slate-500 hover:text-emerald-400">Forgot Password?</button>
-                </div>
-
+                <div className="text-right mb-4"><button onClick={() => setAuthMode('forgot')} className="text-xs text-slate-500 hover:text-emerald-400">Forgot Password?</button></div>
                 <button onClick={handleLogin} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3 rounded text-sm uppercase tracking-widest transition-colors">Secure Login</button>
                 <div className="mt-4 text-sm text-slate-500 text-center">New player? <button onClick={() => setAuthMode('register')} className="text-emerald-500 font-bold hover:underline">Register here</button></div>
-              </div>
-            )}
-
-            {authMode === 'forgot' && (
-              <div className="space-y-4 text-left">
-                <p className="text-xs text-slate-400 mb-4">Enter your registered Username and Mobile number to authenticate your identity.</p>
-                <input type="text" placeholder="Username" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
-                <input type="tel" placeholder="Mobile Number" value={formData.mobile} onChange={e => setFormData({...formData, mobile: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
-                <input type="password" placeholder="Create New Password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white mb-4 focus:border-emerald-500 outline-none" />
-                
-                <button onClick={handleForgotPassword} className="w-full bg-amber-500 hover:bg-amber-400 text-black font-bold py-3 rounded text-sm uppercase tracking-widest transition-colors">Reset Password</button>
-                <div className="mt-4 text-sm text-slate-500 text-center"><button onClick={() => setAuthMode('login')} className="text-emerald-500 font-bold hover:underline">Cancel</button></div>
               </div>
             )}
 
@@ -321,35 +312,28 @@ function App() {
                 <input type="text" placeholder="Full Name *" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
                 <input type="text" placeholder="Username *" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
                 <input type="tel" placeholder="Mobile Number *" value={formData.mobile} onChange={e => setFormData({...formData, mobile: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
-                <input type="email" placeholder="Email Address (Optional)" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
                 <input type="password" placeholder="Password *" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
-                <input type="text" placeholder="Referral Code (Optional)" value={formData.referral} onChange={e => setFormData({...formData, referral: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
                 
                 <label className="flex items-start gap-2 mt-4 cursor-pointer">
                   <input type="checkbox" checked={formData.agreeTerms} onChange={e => setFormData({...formData, agreeTerms: e.target.checked})} className="mt-1" />
-                  <span className="text-xs text-slate-400">I agree to the Terms of Service, Privacy Policy, and confirm I am of legal age to use this application.</span>
+                  <span className="text-xs text-slate-400">I agree to the Terms of Service.</span>
                 </label>
 
-                <button onClick={handleRegisterInitiate} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3 mt-4 rounded text-sm uppercase tracking-widest transition-colors">Continue to Verification</button>
-                <div className="mt-4 text-sm text-slate-500 text-center">Already have an account? <button onClick={() => setAuthMode('login')} className="text-emerald-500 font-bold hover:underline">Login</button></div>
+                <button onClick={() => { if(!formData.agreeTerms) return setAuthError("Agree to terms"); setAuthMode('otp'); }} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3 mt-4 rounded text-sm uppercase tracking-widest transition-colors">Continue to Verification</button>
               </div>
             )}
 
             {authMode === 'otp' && (
               <div className="space-y-4 text-left">
-                <p className="text-sm text-slate-400 text-center mb-6">An OTP has been sent to <b className="text-white">{formData.mobile}</b> to verify your identity and prevent bots.</p>
-                <div className="bg-amber-500/10 border border-amber-500/30 p-3 rounded mb-4 text-center">
-                    <span className="text-amber-500 text-xs font-bold uppercase tracking-widest">Simulator Note: Use OTP 123456</span>
-                </div>
-                <input type="text" placeholder="Enter 6-digit OTP" maxLength="6" value={otpValue} onChange={e => setOtpValue(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded p-4 text-center text-2xl font-mono text-white tracking-[0.5em] focus:border-emerald-500 outline-none" />
+                <p className="text-sm text-slate-400 text-center mb-6">OTP sent to <b className="text-white">{formData.mobile}</b>.</p>
+                <input type="text" placeholder="123456" maxLength="6" value={otpValue} onChange={e => setOtpValue(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded p-4 text-center text-2xl font-mono text-white tracking-[0.5em] focus:border-emerald-500 outline-none" />
                 <button onClick={handleVerifyOTP} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3 mt-2 rounded text-sm uppercase tracking-widest transition-colors">Verify & Create Account</button>
-                <button onClick={() => setAuthMode('register')} className="w-full text-slate-500 text-sm font-bold mt-2 hover:text-white">Cancel</button>
               </div>
             )}
           </div>
         )}
 
-        {/* --- 2. DASHBOARD / HISTORY --- */}
+        {/* --- 2. DASHBOARD --- */}
         {appState === 'dashboard' && (
           <div className="max-w-4xl mx-auto animate-fade-in mt-10">
             <div className="flex justify-between items-end mb-8 border-b border-slate-800 pb-4">
@@ -357,18 +341,17 @@ function App() {
               <button onClick={() => { setTeam1([]); setTeam2([]); setTossPhase('call'); setAppState('config'); }} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-6 py-3 rounded uppercase tracking-widest text-sm transition-colors shadow-lg">Start New Series</button>
             </div>
             
-            <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4">Past & Active Matches ({matchHistory.length})</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {matchHistory.length === 0 && <p className="text-slate-600 font-mono text-sm">No matches played yet.</p>}
               {matchHistory.map(m => (
                 <div key={m.id} onClick={() => handleMatchClick(m)} className={`border p-5 rounded-lg flex justify-between items-center transition-all cursor-pointer hover:-translate-y-1 ${m.status === 'In Progress' ? 'bg-slate-900 border-emerald-500/50 hover:shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-slate-950 border-slate-800 hover:border-slate-600'}`}>
                   <div>
-                    <div className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${m.status === 'In Progress' ? 'text-emerald-500' : 'text-slate-500'}`}>Match #{m.id} • {m.status}</div>
+                    <div className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${m.status === 'In Progress' ? 'text-emerald-500' : 'text-slate-500'}`}>{m.format} Match #{m.id}</div>
                     <div className="text-xl font-mono font-bold text-white">{m.score}/{m.wickets}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-slate-500 font-mono text-sm">{Math.floor(m.balls/6)}.{m.balls%6} Overs</div>
-                    <div className="text-[10px] font-bold text-slate-600 uppercase mt-1">{m.status === 'In Progress' ? 'Click to Resume' : 'View Scorecard'}</div>
+                    <div className="text-slate-500 font-mono text-sm">{Math.floor(m.balls/6)}.{m.balls%6} / {m.format === 'T10' ? 10 : 20} Ov</div>
+                    <div className="text-[10px] font-bold text-slate-600 uppercase mt-1">{m.status === 'In Progress' ? 'Resume' : 'Scorecard'}</div>
                   </div>
                 </div>
               ))}
@@ -382,6 +365,13 @@ function App() {
             <h2 className="text-xl font-bold mb-6 text-white uppercase tracking-widest border-b border-slate-800 pb-4">Match Setup</h2>
             <div className="space-y-4 mb-8">
               <div>
+                <label className="block text-slate-500 font-bold mb-2 uppercase text-[10px] tracking-widest">Match Format</label>
+                <div className="flex gap-2">
+                    <button onClick={() => setMatchFormat('T10')} className={`flex-1 py-3 font-bold rounded text-sm uppercase transition-colors ${matchFormat === 'T10' ? 'bg-emerald-500 text-black' : 'bg-slate-950 border border-slate-800 text-slate-400 hover:bg-slate-800'}`}>T10 (10 Overs)</button>
+                    <button onClick={() => setMatchFormat('T20')} className={`flex-1 py-3 font-bold rounded text-sm uppercase transition-colors ${matchFormat === 'T20' ? 'bg-emerald-500 text-black' : 'bg-slate-950 border border-slate-800 text-slate-400 hover:bg-slate-800'}`}>T20 (20 Overs)</button>
+                </div>
+              </div>
+              <div className="mt-4">
                 <label className="block text-slate-500 font-bold mb-2 uppercase text-[10px] tracking-widest">Home Team</label>
                 <input type="text" value={team1Name} onChange={(e) => setTeam1Name(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white font-bold focus:border-emerald-500 outline-none" />
               </div>
@@ -390,75 +380,207 @@ function App() {
                 <input type="text" value={team2Name} onChange={(e) => setTeam2Name(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white font-bold focus:border-cyan-500 outline-none" />
               </div>
             </div>
-            <button onClick={() => setAppState('draft')} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-black px-6 py-3 rounded uppercase tracking-widest text-sm transition-colors">Proceed to Draft</button>
+            <button onClick={() => setAppState('draft')} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-black px-6 py-3 rounded uppercase tracking-widest text-sm transition-colors">Step 1: Player Draft →</button>
           </div>
         )}
 
-        {/* --- 4. SEARCHABLE DRAFT (WITH 11-PLAYER RULE) --- */}
+        {/* --- STEP 1: DRAFT (WITH 11-PLAYER RULE & CAPTAINS) --- */}
         {appState === 'draft' && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-2xl">
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
-              <h2 className="text-lg font-bold text-white uppercase tracking-widest">Live Team Draft</h2>
+              <h2 className="text-lg font-bold text-white uppercase tracking-widest">Step 1: Select Squads & Captains</h2>
               <button 
                 onClick={() => { 
-                    if (team1.length !== 11 || team2.length !== 11) return alert(`You must select EXACTLY 11 players for each team.\n\n${team1Name}: ${team1.length}/11\n${team2Name}: ${team2.length}/11`); 
-                    setAppState('toss'); 
+                    if (team1.length !== 11 || team2.length !== 11) return alert(`Select exactly 11 players for each team.`); 
+                    if (!team1.find(p=>p.isCaptain) || !team2.find(p=>p.isCaptain)) return alert(`Assign a Captain (C) for both teams.`);
+                    setAppState('strategy'); 
                 }} 
                 className="bg-emerald-500 text-black font-bold px-6 py-2 rounded text-sm uppercase tracking-widest hover:bg-emerald-400 transition-colors">
-                Confirm Rosters
+                Step 2: Strategy →
               </button>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Team 1 Panel */}
+              {/* Team 1 Draft */}
               <div className="bg-slate-950 border border-slate-800 p-5 rounded-lg">
                 <h3 className="font-black text-emerald-500 uppercase tracking-widest mb-4">{team1Name} ({team1.length}/11)</h3>
-                <input type="text" placeholder="Search players..." value={search1} onChange={e => setSearch1(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded mb-2 text-sm font-bold focus:border-emerald-500 outline-none" />
-                {search1 && (
+                
+                {team1.length < 11 ? (
+                    <input type="text" placeholder="Search players (e.g. 'Smi')" value={search1} onChange={e => setSearch1(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded mb-2 text-sm font-bold focus:border-emerald-500 outline-none" />
+                ) : (
+                    <div className="bg-emerald-500/20 text-emerald-400 font-bold text-center p-3 rounded mb-2 text-sm border border-emerald-500/30">✓ 11/11 Squad Selected</div>
+                )}
+                
+                {search1 && team1.length < 11 && (
                   <div className="bg-slate-800 rounded border border-slate-700 mb-4 max-h-[150px] overflow-y-auto custom-scrollbar">
                     {getFilteredPlayers(search1).map(p => {
                       const isTaken1 = team1.find(t => t.id === p.id); const isTaken2 = team2.find(t => t.id === p.id);
-                      return (<button key={p.id} disabled={isTaken1 || isTaken2 || team1.length >= 11} onClick={() => { addPlayerToTeam(p, 1); setSearch1(''); }} className={`w-full text-left p-2 border-b border-slate-700/50 text-xs font-bold transition-colors ${isTaken1 ? 'bg-emerald-500/20 text-emerald-500 cursor-not-allowed' : isTaken2 ? 'bg-slate-900 text-slate-600 cursor-not-allowed' : 'hover:bg-slate-700 text-white'}`}>{p.name} {isTaken2 && "(At Opponent)"} {isTaken1 && "(Drafted)"}</button>)
+                      return (<button key={p.id} disabled={isTaken1 || isTaken2} onClick={() => { addPlayerToTeam(p, 1); setSearch1(''); }} className={`w-full text-left p-2 border-b border-slate-700/50 text-xs font-bold transition-colors ${isTaken1 ? 'bg-emerald-500/20 text-emerald-500 cursor-not-allowed' : isTaken2 ? 'bg-slate-900 text-slate-600 cursor-not-allowed' : 'hover:bg-slate-700 text-white'}`}>{p.name} {isTaken2 && "(At Opponent)"} {isTaken1 && "(Drafted)"}</button>)
                     })}
                   </div>
                 )}
-                <div className="space-y-2 mt-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                  {team1.map((p, idx) => (
-                    <div key={p.id} className="flex justify-between items-center bg-slate-900 border border-slate-800 p-3 rounded">
+
+                <div className="space-y-2 mt-4">
+                  {team1.map(p => (
+                    <div key={p.id} className={`flex justify-between items-center border p-2 rounded ${p.isCaptain ? 'bg-emerald-500/10 border-emerald-500/50' : 'bg-slate-900 border-slate-800'}`}>
                       <div className="flex items-center gap-3">
+                          <button onClick={() => setCaptain(p.id, 1)} className={`w-6 h-6 rounded-full text-[10px] font-black border transition-colors ${p.isCaptain ? 'bg-emerald-500 text-black border-emerald-500' : 'bg-slate-800 text-slate-500 border-slate-600 hover:bg-slate-700'}`}>C</button>
                           <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded font-black">{p.role.substring(0,3).toUpperCase()}</span>
-                          <span className="text-sm font-bold text-slate-200">{p.name} {idx === 0 && <span className="text-emerald-500">(C)</span>}</span>
+                          <span className="text-sm font-bold text-slate-200">{p.name}</span>
                       </div>
-                      <button onClick={() => removePlayer(p.id, 1)} className="text-red-500 hover:bg-red-500/20 px-2 py-1 rounded text-xs font-bold transition-colors">Remove</button>
+                      <button onClick={() => removePlayer(p.id, 1)} className="text-red-500 hover:bg-red-500/20 px-2 py-1 rounded text-xs font-bold transition-colors">✕</button>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Team 2 Panel */}
+              {/* Team 2 Draft */}
               <div className="bg-slate-950 border border-slate-800 p-5 rounded-lg">
                 <h3 className="font-black text-cyan-500 uppercase tracking-widest mb-4">{team2Name} ({team2.length}/11)</h3>
-                <input type="text" placeholder="Search players..." value={search2} onChange={e => setSearch2(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded mb-2 text-sm font-bold focus:border-cyan-500 outline-none" />
-                {search2 && (
+                {team2.length < 11 ? (
+                    <input type="text" placeholder="Search players (e.g. 'Man')" value={search2} onChange={e => setSearch2(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded mb-2 text-sm font-bold focus:border-cyan-500 outline-none" />
+                ) : (
+                    <div className="bg-cyan-500/20 text-cyan-400 font-bold text-center p-3 rounded mb-2 text-sm border border-cyan-500/30">✓ 11/11 Squad Selected</div>
+                )}
+                
+                {search2 && team2.length < 11 && (
                   <div className="bg-slate-800 rounded border border-slate-700 mb-4 max-h-[150px] overflow-y-auto custom-scrollbar">
                     {getFilteredPlayers(search2).map(p => {
                       const isTaken2 = team2.find(t => t.id === p.id); const isTaken1 = team1.find(t => t.id === p.id);
-                      return (<button key={p.id} disabled={isTaken1 || isTaken2 || team2.length >= 11} onClick={() => { addPlayerToTeam(p, 2); setSearch2(''); }} className={`w-full text-left p-2 border-b border-slate-700/50 text-xs font-bold transition-colors ${isTaken2 ? 'bg-cyan-500/20 text-cyan-500 cursor-not-allowed' : isTaken1 ? 'bg-slate-900 text-slate-600 cursor-not-allowed' : 'hover:bg-slate-700 text-white'}`}>{p.name} {isTaken1 && "(At Opponent)"} {isTaken2 && "(Drafted)"}</button>)
+                      return (<button key={p.id} disabled={isTaken1 || isTaken2} onClick={() => { addPlayerToTeam(p, 2); setSearch2(''); }} className={`w-full text-left p-2 border-b border-slate-700/50 text-xs font-bold transition-colors ${isTaken2 ? 'bg-cyan-500/20 text-cyan-500 cursor-not-allowed' : isTaken1 ? 'bg-slate-900 text-slate-600 cursor-not-allowed' : 'hover:bg-slate-700 text-white'}`}>{p.name} {isTaken1 && "(At Opponent)"} {isTaken2 && "(Drafted)"}</button>)
                     })}
                   </div>
                 )}
-                <div className="space-y-2 mt-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                  {team2.map((p, idx) => (
-                    <div key={p.id} className="flex justify-between items-center bg-slate-900 border border-slate-800 p-3 rounded">
+                
+                <div className="space-y-2 mt-4">
+                  {team2.map(p => (
+                    <div key={p.id} className={`flex justify-between items-center border p-2 rounded ${p.isCaptain ? 'bg-cyan-500/10 border-cyan-500/50' : 'bg-slate-900 border-slate-800'}`}>
                       <div className="flex items-center gap-3">
+                          <button onClick={() => setCaptain(p.id, 2)} className={`w-6 h-6 rounded-full text-[10px] font-black border transition-colors ${p.isCaptain ? 'bg-cyan-500 text-black border-cyan-500' : 'bg-slate-800 text-slate-500 border-slate-600 hover:bg-slate-700'}`}>C</button>
                           <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded font-black">{p.role.substring(0,3).toUpperCase()}</span>
-                          <span className="text-sm font-bold text-slate-200">{p.name} {idx === 0 && <span className="text-cyan-500">(C)</span>}</span>
+                          <span className="text-sm font-bold text-slate-200">{p.name}</span>
                       </div>
-                      <button onClick={() => removePlayer(p.id, 2)} className="text-red-500 hover:bg-red-500/20 px-2 py-1 rounded text-xs font-bold transition-colors">Remove</button>
+                      <button onClick={() => removePlayer(p.id, 2)} className="text-red-500 hover:bg-red-500/20 px-2 py-1 rounded text-xs font-bold transition-colors">✕</button>
                     </div>
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- STEP 2: STRATEGY (BATTING ORDER & BOWLING QUOTAS) --- */}
+        {appState === 'strategy' && (
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-2xl animate-fade-in">
+             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
+              <h2 className="text-lg font-bold text-white uppercase tracking-widest">Step 2: Formations & Quotas</h2>
+              <button onClick={validateStrategy} className="bg-emerald-500 text-black font-bold px-6 py-2 rounded text-sm uppercase tracking-widest hover:bg-emerald-400 transition-colors">
+                Step 3: Review Teams →
+              </button>
+            </div>
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-6 bg-slate-950 p-3 rounded border border-slate-800">
+                Instruction: Order your batters (1-11) using the arrows. Assign exactly {totalFormatOvers} bowling overs per team. Engine handles bowling rotation automatically based on quotas.
+            </p>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Team 1 Strategy */}
+                <div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-black text-emerald-500 uppercase">{team1Name}</h3>
+                        <div className={`text-xs font-bold px-3 py-1 rounded border ${t1OversTotal === totalFormatOvers ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/50' : 'bg-amber-500/20 text-amber-500 border-amber-500/50'}`}>
+                            Overs Allocated: {t1OversTotal} / {totalFormatOvers}
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-1">
+                        {team1.map((p, idx) => (
+                            <div key={p.id} className="flex justify-between items-center bg-slate-950 border border-slate-800 p-2 rounded">
+                                <div className="flex items-center gap-2">
+                                    <div className="flex flex-col gap-1 mr-2">
+                                        <button onClick={() => movePlayerOrder(1, idx, 'up')} className="text-slate-500 hover:text-white">▲</button>
+                                        <button onClick={() => movePlayerOrder(1, idx, 'down')} className="text-slate-500 hover:text-white">▼</button>
+                                    </div>
+                                    <span className="text-xs text-slate-500 font-mono w-4">{idx + 1}.</span>
+                                    <span className="text-sm font-bold w-24 truncate">{p.name}</span>
+                                </div>
+                                <div className="flex items-center gap-2 bg-slate-900 px-2 py-1 rounded border border-slate-800">
+                                    <span className="text-[9px] uppercase text-slate-500 font-bold mr-2">Overs:</span>
+                                    <button onClick={() => updateBowlerQuota(1, p.id, -1)} className="w-5 h-5 bg-slate-800 hover:bg-slate-700 rounded text-xs font-bold">-</button>
+                                    <span className="text-sm font-mono w-4 text-center font-bold">{p.allocated_overs}</span>
+                                    <button onClick={() => updateBowlerQuota(1, p.id, 1)} className="w-5 h-5 bg-slate-800 hover:bg-slate-700 rounded text-xs font-bold">+</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Team 2 Strategy */}
+                <div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-black text-cyan-500 uppercase">{team2Name}</h3>
+                        <div className={`text-xs font-bold px-3 py-1 rounded border ${t2OversTotal === totalFormatOvers ? 'bg-cyan-500/20 text-cyan-500 border-cyan-500/50' : 'bg-amber-500/20 text-amber-500 border-amber-500/50'}`}>
+                            Overs Allocated: {t2OversTotal} / {totalFormatOvers}
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-1">
+                        {team2.map((p, idx) => (
+                            <div key={p.id} className="flex justify-between items-center bg-slate-950 border border-slate-800 p-2 rounded">
+                                <div className="flex items-center gap-2">
+                                    <div className="flex flex-col gap-1 mr-2">
+                                        <button onClick={() => movePlayerOrder(2, idx, 'up')} className="text-slate-500 hover:text-white">▲</button>
+                                        <button onClick={() => movePlayerOrder(2, idx, 'down')} className="text-slate-500 hover:text-white">▼</button>
+                                    </div>
+                                    <span className="text-xs text-slate-500 font-mono w-4">{idx + 1}.</span>
+                                    <span className="text-sm font-bold w-24 truncate">{p.name}</span>
+                                </div>
+                                <div className="flex items-center gap-2 bg-slate-900 px-2 py-1 rounded border border-slate-800">
+                                    <span className="text-[9px] uppercase text-slate-500 font-bold mr-2">Overs:</span>
+                                    <button onClick={() => updateBowlerQuota(2, p.id, -1)} className="w-5 h-5 bg-slate-800 hover:bg-slate-700 rounded text-xs font-bold">-</button>
+                                    <span className="text-sm font-mono w-4 text-center font-bold">{p.allocated_overs}</span>
+                                    <button onClick={() => updateBowlerQuota(2, p.id, 1)} className="w-5 h-5 bg-slate-800 hover:bg-slate-700 rounded text-xs font-bold">+</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- STEP 3: FINAL REVIEW --- */}
+        {appState === 'review' && (
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-2xl animate-fade-in">
+             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
+              <h2 className="text-lg font-bold text-white uppercase tracking-widest">Step 3: Match Overview</h2>
+              <button onClick={() => setAppState('toss')} className="bg-emerald-500 text-black font-bold px-8 py-3 rounded text-sm uppercase tracking-widest hover:bg-emerald-400 transition-colors shadow-lg">
+                Proceed to Toss
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                    <h3 className="font-black text-emerald-500 uppercase tracking-widest mb-4 border-b border-slate-800 pb-2">{team1Name} XI</h3>
+                    <ul className="text-sm font-bold space-y-2">
+                        {team1.map((p, i) => (
+                            <li key={p.id} className="flex justify-between">
+                                <span><span className="text-slate-500 font-mono mr-2">{i+1}.</span> {p.name} {p.isCaptain && <span className="text-emerald-500 text-xs">(C)</span>}</span>
+                                {p.allocated_overs > 0 && <span className="text-[10px] bg-slate-800 px-2 rounded font-mono text-slate-400">{p.allocated_overs} Ov</span>}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+                <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                    <h3 className="font-black text-cyan-500 uppercase tracking-widest mb-4 border-b border-slate-800 pb-2">{team2Name} XI</h3>
+                    <ul className="text-sm font-bold space-y-2">
+                        {team2.map((p, i) => (
+                            <li key={p.id} className="flex justify-between">
+                                <span><span className="text-slate-500 font-mono mr-2">{i+1}.</span> {p.name} {p.isCaptain && <span className="text-cyan-500 text-xs">(C)</span>}</span>
+                                {p.allocated_overs > 0 && <span className="text-[10px] bg-slate-800 px-2 rounded font-mono text-slate-400">{p.allocated_overs} Ov</span>}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
             </div>
           </div>
         )}
@@ -598,7 +720,7 @@ function App() {
         {appState === 'scorecard' && viewingScorecard && (
           <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-2xl mt-10 animate-fade-in">
              <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
-                 <h2 className="text-2xl font-black uppercase tracking-widest text-white">Match Scorecard</h2>
+                 <h2 className="text-2xl font-black uppercase tracking-widest text-white">{viewingScorecard.format} Scorecard</h2>
                  <button onClick={() => setAppState('dashboard')} className="text-emerald-500 text-sm font-bold uppercase tracking-widest hover:underline">← Back to Dashboard</button>
              </div>
 
@@ -621,7 +743,7 @@ function App() {
                      <tbody className="divide-y divide-slate-800 font-mono">
                          {viewingScorecard.batting_team?.map(p => (
                              <tr key={p.id} className="hover:bg-slate-900/50">
-                                 <td className="p-3 font-bold text-white font-sans">{p.name}</td>
+                                 <td className="p-3 font-bold text-white font-sans">{p.name} {p.isCaptain && <span className="text-emerald-500 text-[10px]">(C)</span>}</td>
                                  <td className="p-3 text-slate-400 text-xs">{p.status}</td>
                                  <td className="p-3 text-right font-bold text-emerald-400">{p.runs}</td>
                                  <td className="p-3 text-right text-slate-300">{p.balls}</td>
@@ -648,7 +770,7 @@ function App() {
                              const econ = p.balls_bowled > 0 ? ((p.runs_conceded / p.balls_bowled) * 6).toFixed(1) : '-';
                              return (
                                  <tr key={p.id} className="hover:bg-slate-900/50">
-                                     <td className="p-3 font-bold text-white font-sans">{p.name}</td>
+                                     <td className="p-3 font-bold text-white font-sans">{p.name} {p.isCaptain && <span className="text-cyan-500 text-[10px]">(C)</span>}</td>
                                      <td className="p-3 text-right text-slate-300">{overStr}</td>
                                      <td className="p-3 text-right text-slate-400">{p.runs_conceded}</td>
                                      <td className="p-3 text-right font-bold text-cyan-400">{p.wickets}</td>
