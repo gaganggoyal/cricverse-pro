@@ -1,3 +1,4 @@
+import LiveMatch from './LiveMatch';
 import { useState, useRef, useEffect } from 'react';
 import { playerDatabase } from './players';
 
@@ -344,6 +345,7 @@ function App() {
       else setAppState('postMatch');
     }
   };
+  
 
   const activeScore = innings === 1 ? score1 : score2;
   const activeWickets = innings === 1 ? wickets1 : wickets2;
@@ -375,6 +377,16 @@ function App() {
           </div>
         </div>
       </header>
+
+      {/* --- LIVE SERVER SCORE TICKER --- */}
+      <div className="max-w-6xl mx-auto px-4 lg:px-8 pt-4">
+        <div className="bg-slate-900 border border-emerald-500/50 rounded-xl p-4 shadow-[0_0_15px_rgba(16,185,129,0.2)] text-center text-emerald-400 font-mono font-bold flex justify-center items-center gap-3">
+          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+          SERVER API DATA: 
+          <LiveMatch />
+        </div>
+      </div>
+      {/* -------------------------------- */}
 
       <main className="max-w-6xl mx-auto p-4 lg:p-8">
         
