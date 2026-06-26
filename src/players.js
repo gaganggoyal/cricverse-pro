@@ -1,55 +1,47 @@
 export const playerDatabase = [
-  // --- INDIA ---
+  // --- MENS SUPERSTARS ---
   { id: 1, name: "Rohit Sharma", role: "Batter", team: "IND", batRating: 92, bowlRating: 15, style: "Aggressive" },
   { id: 2, name: "Virat Kohli", role: "Batter", team: "IND", batRating: 95, bowlRating: 10, style: "Anchor" },
   { id: 3, name: "Suryakumar Yadav", role: "Batter", team: "IND", batRating: 94, bowlRating: 5, style: "Aggressive" },
-  { id: 4, name: "Rishabh Pant", role: "Batter", team: "IND", batRating: 88, bowlRating: 0, style: "Aggressive" },
-  { id: 5, name: "Hardik Pandya", role: "All-Rounder", team: "IND", batRating: 85, bowlRating: 82, style: "Finisher" },
-  { id: 6, name: "Ravindra Jadeja", role: "All-Rounder", team: "IND", batRating: 80, bowlRating: 88, style: "Anchor" },
-  { id: 7, name: "Jasprit Bumrah", role: "Bowler", team: "IND", batRating: 15, bowlRating: 98, style: "Pace" },
-  { id: 8, name: "Mohammed Shami", role: "Bowler", team: "IND", batRating: 20, bowlRating: 90, style: "Pace" },
-  { id: 9, name: "Kuldeep Yadav", role: "Bowler", team: "IND", batRating: 10, bowlRating: 86, style: "Spin" },
+  { id: 4, name: "Jasprit Bumrah", role: "Bowler", team: "IND", batRating: 15, bowlRating: 98, style: "Pace" },
+  { id: 5, name: "Travis Head", role: "Batter", team: "AUS", batRating: 91, bowlRating: 20, style: "Aggressive" },
+  { id: 6, name: "Pat Cummins", role: "Bowler", team: "AUS", batRating: 45, bowlRating: 94, style: "Pace" },
+  { id: 7, name: "Mitchell Starc", role: "Bowler", team: "AUS", batRating: 30, bowlRating: 92, style: "Pace" },
+  { id: 8, name: "Jos Buttler", role: "Batter", team: "ENG", batRating: 92, bowlRating: 0, style: "Aggressive" },
+  { id: 9, name: "Jofra Archer", role: "Bowler", team: "ENG", batRating: 25, bowlRating: 89, style: "Pace" },
+  { id: 10, name: "Kagiso Rabada", role: "Bowler", team: "RSA", batRating: 20, bowlRating: 93, style: "Pace" },
+  { id: 11, name: "Babar Azam", role: "Batter", team: "PAK", batRating: 92, bowlRating: 0, style: "Anchor" },
+  { id: 12, name: "Shaheen Afridi", role: "Bowler", team: "PAK", batRating: 35, bowlRating: 91, style: "Pace" },
+  { id: 13, name: "Kane Williamson", role: "Batter", team: "NZ", batRating: 93, bowlRating: 15, style: "Anchor" },
+  { id: 14, name: "Rashid Khan", role: "All-Rounder", team: "AFG", batRating: 75, bowlRating: 96, style: "Spin" },
+  { id: 15, name: "Hardik Pandya", role: "All-Rounder", team: "IND", batRating: 85, bowlRating: 82, style: "Finisher" },
+  { id: 16, name: "Ravindra Jadeja", role: "All-Rounder", team: "IND", batRating: 80, bowlRating: 88, style: "Anchor" },
+  { id: 17, name: "Glenn Maxwell", role: "All-Rounder", team: "AUS", batRating: 88, bowlRating: 75, style: "Finisher" },
+  { id: 18, name: "Heinrich Klaasen", role: "Batter", team: "RSA", batRating: 94, bowlRating: 0, style: "Finisher" },
+  { id: 19, name: "Ben Stokes", role: "All-Rounder", team: "ENG", batRating: 88, bowlRating: 80, style: "Finisher" },
+  { id: 20, name: "Kuldeep Yadav", role: "Bowler", team: "IND", batRating: 10, bowlRating: 86, style: "Spin" },
 
-  // --- AUSTRALIA ---
-  { id: 10, name: "Travis Head", role: "Batter", team: "AUS", batRating: 91, bowlRating: 20, style: "Aggressive" },
-  { id: 11, name: "David Warner", role: "Batter", team: "AUS", batRating: 89, bowlRating: 0, style: "Aggressive" },
-  { id: 12, name: "Steve Smith", role: "Batter", team: "AUS", batRating: 93, bowlRating: 15, style: "Anchor" },
-  { id: 13, name: "Glenn Maxwell", role: "All-Rounder", team: "AUS", batRating: 88, bowlRating: 75, style: "Finisher" },
-  { id: 14, name: "Mitchell Marsh", role: "All-Rounder", team: "AUS", batRating: 85, bowlRating: 70, style: "Aggressive" },
-  { id: 15, name: "Pat Cummins", role: "Bowler", team: "AUS", batRating: 45, bowlRating: 94, style: "Pace" },
-  { id: 16, name: "Mitchell Starc", role: "Bowler", team: "AUS", batRating: 30, bowlRating: 92, style: "Pace" },
-  { id: 17, name: "Adam Zampa", role: "Bowler", team: "AUS", batRating: 10, bowlRating: 89, style: "Spin" },
-  { id: 18, name: "Josh Hazlewood", role: "Bowler", team: "AUS", batRating: 8, bowlRating: 91, style: "Pace" },
-
-  // --- ENGLAND ---
-  { id: 19, name: "Jos Buttler", role: "Batter", team: "ENG", batRating: 92, bowlRating: 0, style: "Aggressive" },
-  { id: 20, name: "Phil Salt", role: "Batter", team: "ENG", batRating: 87, bowlRating: 0, style: "Aggressive" },
-  { id: 21, name: "Joe Root", role: "Batter", team: "ENG", batRating: 93, bowlRating: 40, style: "Anchor" },
-  { id: 22, name: "Ben Stokes", role: "All-Rounder", team: "ENG", batRating: 88, bowlRating: 80, style: "Finisher" },
-  { id: 23, name: "Liam Livingstone", role: "All-Rounder", team: "ENG", batRating: 84, bowlRating: 70, style: "Aggressive" },
-  { id: 24, name: "Jofra Archer", role: "Bowler", team: "ENG", batRating: 25, bowlRating: 89, style: "Pace" },
-  { id: 25, name: "Adil Rashid", role: "Bowler", team: "ENG", batRating: 15, bowlRating: 88, style: "Spin" },
-
-  // --- SOUTH AFRICA ---
-  { id: 26, name: "Quinton de Kock", role: "Batter", team: "RSA", batRating: 89, bowlRating: 0, style: "Aggressive" },
-  { id: 27, name: "Heinrich Klaasen", role: "Batter", team: "RSA", batRating: 94, bowlRating: 0, style: "Finisher" },
-  { id: 28, name: "David Miller", role: "Batter", team: "RSA", batRating: 86, bowlRating: 0, style: "Finisher" },
-  { id: 29, name: "Marco Jansen", role: "All-Rounder", team: "RSA", batRating: 65, bowlRating: 85, style: "Pace" },
-  { id: 30, name: "Kagiso Rabada", role: "Bowler", team: "RSA", batRating: 20, bowlRating: 93, style: "Pace" },
-  
-  // --- PAKISTAN ---
-  { id: 31, name: "Babar Azam", role: "Batter", team: "PAK", batRating: 92, bowlRating: 0, style: "Anchor" },
-  { id: 32, name: "Mohammad Rizwan", role: "Batter", team: "PAK", batRating: 89, bowlRating: 0, style: "Anchor" },
-  { id: 33, name: "Fakhar Zaman", role: "Batter", team: "PAK", batRating: 85, bowlRating: 0, style: "Aggressive" },
-  { id: 34, name: "Shaheen Afridi", role: "Bowler", team: "PAK", batRating: 35, bowlRating: 91, style: "Pace" },
-  { id: 35, name: "Haris Rauf", role: "Bowler", team: "PAK", batRating: 10, bowlRating: 87, style: "Pace" },
-
-  // --- NEW ZEALAND ---
-  { id: 36, name: "Kane Williamson", role: "Batter", team: "NZ", batRating: 93, bowlRating: 15, style: "Anchor" },
-  { id: 37, name: "Rachin Ravindra", role: "All-Rounder", team: "NZ", batRating: 86, bowlRating: 75, style: "Aggressive" },
-  { id: 38, name: "Trent Boult", role: "Bowler", team: "NZ", batRating: 15, bowlRating: 92, style: "Pace" },
-
-  // --- AFGHANISTAN & OTHERS ---
-  { id: 39, name: "Rashid Khan", role: "All-Rounder", team: "AFG", batRating: 75, bowlRating: 96, style: "Spin" },
-  { id: 40, name: "Rahmanullah Gurbaz", role: "Batter", team: "AFG", batRating: 86, bowlRating: 0, style: "Aggressive" }
+  // --- WPL WOMENS SUPERSTARS ---
+  { id: 101, name: "Smriti Mandhana", role: "Batter", team: "RCB-W", batRating: 95, bowlRating: 10, style: "Aggressive" },
+  { id: 102, name: "Harmanpreet Kaur", role: "Batter", team: "MI-W", batRating: 94, bowlRating: 20, style: "Aggressive" },
+  { id: 103, name: "Nat Sciver-Brunt", role: "All-Rounder", team: "MI-W", batRating: 94, bowlRating: 85, style: "Aggressive" },
+  { id: 104, name: "Lizelle Lee", role: "Batter", team: "DC-W", batRating: 90, bowlRating: 0, style: "Aggressive" },
+  { id: 105, name: "Laura Wolvaardt", role: "Batter", team: "DC-W", batRating: 91, bowlRating: 0, style: "Anchor" },
+  { id: 106, name: "Sophie Devine", role: "All-Rounder", team: "GG-W", batRating: 88, bowlRating: 92, style: "Finisher" },
+  { id: 107, name: "Meg Lanning", role: "Batter", team: "UPW", batRating: 92, bowlRating: 0, style: "Anchor" },
+  { id: 108, name: "Ashleigh Gardner", role: "All-Rounder", team: "GG-W", batRating: 88, bowlRating: 85, style: "Aggressive" },
+  { id: 109, name: "Amelia Kerr", role: "All-Rounder", team: "MI-W", batRating: 85, bowlRating: 90, style: "Spin" },
+  { id: 110, name: "Marizanne Kapp", role: "All-Rounder", team: "DC-W", batRating: 80, bowlRating: 88, style: "Pace" },
+  { id: 111, name: "Ellyse Perry", role: "All-Rounder", team: "RCB-W", batRating: 89, bowlRating: 84, style: "Anchor" },
+  { id: 112, name: "Deepti Sharma", role: "All-Rounder", team: "UPW", batRating: 84, bowlRating: 87, style: "Spin" },
+  { id: 113, name: "Shafali Verma", role: "Batter", team: "DC-W", batRating: 88, bowlRating: 15, style: "Aggressive" },
+  { id: 114, name: "Sophie Ecclestone", role: "Bowler", team: "UPW", batRating: 20, bowlRating: 95, style: "Spin" },
+  { id: 115, name: "Shabnim Ismail", role: "Bowler", team: "MI-W", batRating: 15, bowlRating: 93, style: "Pace" },
+  { id: 116, name: "Renuka Singh", role: "Bowler", team: "RCB-W", batRating: 10, bowlRating: 89, style: "Pace" },
+  { id: 117, name: "Richa Ghosh", role: "Batter", team: "RCB-W", batRating: 87, bowlRating: 0, style: "Finisher" },
+  { id: 118, name: "Jemimah Rodrigues", role: "Batter", team: "DC-W", batRating: 86, bowlRating: 0, style: "Anchor" },
+  { id: 119, name: "Beth Mooney", role: "Batter", team: "GG-W", batRating: 90, bowlRating: 0, style: "Anchor" },
+  { id: 120, name: "Radha Yadav", role: "Bowler", team: "RCB-W", batRating: 15, bowlRating: 87, style: "Spin" },
+  { id: 121, name: "Shikha Pandey", role: "Bowler", team: "UPW", batRating: 30, bowlRating: 86, style: "Pace" },
+  { id: 122, name: "Phoebe Litchfield", role: "Batter", team: "UPW", batRating: 85, bowlRating: 0, style: "Aggressive" }
 ];
