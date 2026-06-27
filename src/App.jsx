@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { playerDatabase } from './players';
 
+// If deployed, use the live server. If on your computer, use localhost.
+const API_BASE = import.meta.env.VITE_API_URL || 'https://your-future-backend-url.com';
+
 const franchiseTeams = [
     { name: 'Mumbai Indians', code: 'MI' },
     { name: 'Chennai Super Kings', code: 'CSK' },
@@ -114,8 +117,8 @@ function App() {
         }
 
         try {
-            await fetch(`http://127.0.0.1:8000/matches/${serverId}/next-ball`, { method: 'POST' });
-            const res = await fetch(`http://127.0.0.1:8000/matches/${serverId}/score`);
+            await fetch(`${API_BASE}/matches/${serverId}/next-ball`, { method: 'POST' });
+            const res = await fetch(`${API_BASE}/matches/${serverId}/score`);
             if (!res.ok) return;
             
             const data = await res.json();
@@ -211,7 +214,7 @@ function App() {
     setAuthError('');
     if (!formData.username || !formData.password) return setAuthError("Please fill in all fields.");
     try {
-      const res = await fetch(`http://127.0.0.1:8000/${endpoint}`, { 
+      const res = await fetch(`${API_BASE}/${endpoint}`, { 
           method: 'POST', 
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify(formData) 
@@ -239,7 +242,7 @@ function App() {
 
   async function fetchHistory(userId) {
     try { 
-        const res = await fetch(`http://127.0.0.1:8000/users/${userId}/matches`); 
+        const res = await fetch(`${API_BASE}/users/${userId}/matches`); 
         const data = await res.json();
         if (Array.isArray(data)) { 
             setMatchHistory(data); 
@@ -253,7 +256,7 @@ function App() {
 
   async function handleMatchClick(match) {
     try {
-        const res = await fetch(`http://127.0.0.1:8000/matches/${match.id}/score`);
+        const res = await fetch(`${API_BASE}/matches/${match.id}/score`);
         const data = await res.json();
         setServerId(match.id); 
         setServerData(data); 
@@ -275,8 +278,8 @@ function App() {
   async function handleFastForward() {
       setIsPlaying(false);
       try {
-          await fetch(`http://127.0.0.1:8000/matches/${serverId}/fast-forward`, { method: 'POST' });
-          const res = await fetch(`http://127.0.0.1:8000/matches/${serverId}/score`);
+          await fetch(`${API_BASE}/matches/${serverId}/fast-forward`, { method: 'POST' });
+          const res = await fetch(`${API_BASE}/matches/${serverId}/score`);
           const data = await res.json();
           setServerData(data);
           
@@ -294,7 +297,7 @@ function App() {
   async function changeLanguage(lang) {
       setSelectedLang(lang);
       if (serverId) {
-          fetch(`http://127.0.0.1:8000/matches/${serverId}/language`, { 
+          fetch(`${API_BASE}/matches/${serverId}/language`, { 
               method: 'PUT', 
               headers: { 'Content-Type': 'application/json' }, 
               body: JSON.stringify({ language: lang }) 
@@ -528,7 +531,7 @@ function App() {
           inn2Seq = orderT2 || [];
       }
       
-      const res = await fetch('http://127.0.0.1:8000/matches/', { 
+      const res = await fetch('${API_BASE}/matches/', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -546,13 +549,13 @@ function App() {
       const data = await res.json(); 
       setServerId(data.id);
       
-      await fetch(`http://127.0.0.1:8000/matches/${data.id}/language`, { 
+      await fetch(`${API_BASE}/matches/${data.id}/language`, { 
           method: 'PUT', 
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ language: selectedLang }) 
       });
 
-      const initScoreRes = await fetch(`http://127.0.0.1:8000/matches/${data.id}/score`);
+      const initScoreRes = await fetch(`${API_BASE}/matches/${data.id}/score`);
       const initScoreData = await initScoreRes.json();
       setServerData(initScoreData);
       
@@ -1291,9 +1294,9 @@ function App() {
                                 setIsStartingInn2(true);
                                 setCommentaryFeed([]); 
                                 setPrevBalls(0);
-                                await fetch(`http://127.0.0.1:8000/matches/${serverId}/start-inn2`, { method: 'POST' }); 
+                                await fetch(`${API_BASE}/matches/${serverId}/start-inn2`, { method: 'POST' }); 
                                 
-                                const initScoreRes = await fetch(`http://127.0.0.1:8000/matches/${serverId}/score`);
+                                const initScoreRes = await fetch(`${API_BASE}/matches/${serverId}/score`);
                                 const initScoreData = await initScoreRes.json();
                                 setServerData(initScoreData);
 
