@@ -144,7 +144,7 @@ function App() {
     return () => clearTimeout(timer);
   }, [appState, serverId, isPlaying, isAudioEnabled]);
 
-// --- AI COMMENTARY RECEIVER (FIXED BROADCAST EDITION) ---
+// --- AI COMMENTARY RECEIVER (BROWSER NEURAL BROADCAST EDITION) ---
   useEffect(() => {
     if (serverData && serverData.balls > prevBalls) {
       setPrevBalls(serverData.balls);
@@ -168,57 +168,39 @@ function App() {
         if (isAudioEnabled) {
             // Play stadium sound effects
             if (d.is_wicket) {
-                wicketSound.current.currentTime = 0; 
-                safePlayAudio(wicketSound);
+                wicketSound.current.currentTime = 0; safePlayAudio(wicketSound);
             } else if (d.result === 4 || d.result === 6) { 
-                batSound.current.currentTime = 0;
-                safePlayAudio(batSound); 
-                setTimeout(() => {
-                    cheerSound.current.currentTime = 0;
-                    cheerSound.current.volume = 0.8; 
-                    safePlayAudio(cheerSound);
-                }, 300); 
+                batSound.current.currentTime = 0; safePlayAudio(batSound); 
+                setTimeout(() => { cheerSound.current.currentTime = 0; cheerSound.current.volume = 0.8; safePlayAudio(cheerSound); }, 300); 
             } else if (d.result > 0) {
-                batSound.current.currentTime = 0;
-                safePlayAudio(batSound);
+                batSound.current.currentTime = 0; safePlayAudio(batSound);
             }
 
-            // Fetch Premium AI Voice from Backend
-            const fetchAICommentary = async () => {
-                try {
-                    const cleanText = aiText.replace(/[.,!?"]/g, '');
-                    const res = await fetch('http://127.0.0.1:8000/tts', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text: cleanText, language: serverData.language })
-                    });
-                    
-                    const ttsData = await res.json();
-                    
-                    // Decode and play the MP3 instantly
-                    if (ttsData.audio_base64) {
-                        const audio = new Audio("data:audio/mp3;base64," + ttsData.audio_base64);
-                        
-                        // --- 🌟 THE FIXED ENERGY HACK 🌟 ---
-                        // 1. Modest speed boost (15% instead of 25%) for urgency
-                        audio.playbackRate = 1.15; 
-                        
-                        // 2. CRITICAL FIX: Keep pitch preservation ON so he stays an adult!
-                        if ('preservesPitch' in audio) {
-                            audio.preservesPitch = true;
-                        }
-                        
-                        audio.volume = 1.0; 
-                        // -----------------------------
-                        
-                        audio.play().catch(() => console.log("Audio playback blocked by browser."));
-                    }
-                } catch (e) {
-                    console.error("AI TTS Request Failed", e);
-                }
-            };
-            
-            fetchAICommentary();
+            // --- 🌟 THE BROWSER NEURAL HACK 🌟 ---
+            if (window.speechSynthesis) {
+                window.speechSynthesis.cancel(); // Stop any overlapping audio
+                const cleanText = aiText.replace(/[.,!?"]/g, ''); 
+                const utterance = new SpeechSynthesisUtterance(cleanText);
+                
+                // 1. Set the correct Indian accent tag
+                const isHindiOrPunjabi = serverData.language === 'Hindi' || serverData.language === 'Punjabi';
+                utterance.lang = isHindiOrPunjabi ? 'hi-IN' : 'en-IN';
+                
+                // 2. Hunt for the hidden Premium/Google voices installed on the device
+                const voices = window.speechSynthesis.getVoices();
+                let bestVoice = voices.find(v => v.lang.includes(utterance.lang) && (v.name.includes('Google') || v.name.includes('Premium') || v.name.includes('Rishi')));
+                
+                // Fallback if premium voice isn't found
+                if (!bestVoice) bestVoice = voices.find(v => v.lang.includes(utterance.lang));
+                if (bestVoice) utterance.voice = bestVoice;
+
+                // 3. THE MAGIC EMOTION DIALS
+                utterance.rate = 1.15;   // 15% Faster = Urgency/Breathlessness
+                utterance.pitch = 1.25;  // 25% Higher Pitch = Shouting/Excitement (Without chipmunk effect!)
+                utterance.volume = 1.0;  // Max volume over the crowd
+
+                window.speechSynthesis.speak(utterance);
+            }
         }
       }
     }
