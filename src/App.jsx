@@ -1,286 +1,412 @@
 import { useState, useRef, useEffect } from 'react';
 import { playerDatabase } from './players';
 
+const franchiseTeams = [
+    { name: 'Mumbai Indians', code: 'MI' },
+    { name: 'Chennai Super Kings', code: 'CSK' },
+    { name: 'Royal Challengers Bengaluru', code: 'RCB' },
+    { name: 'MI Women', code: 'MI-W' },
+    { name: 'RCB Women', code: 'RCB-W' }
+];
+
 function App() {
-  // --- STATE MANAGEMENT ---
+  // 1. STATE DEFINITIONS
   const [appState, setAppState] = useState('auth'); 
   const [currentUser, setCurrentUser] = useState(null);
   
-  // Auth Form State
   const [authMode, setAuthMode] = useState('login'); 
   const [formData, setFormData] = useState({ name: '', username: '', email: '', mobile: '', password: '', referral: '', agreeTerms: false });
-  const [otpValue, setOtpValue] = useState('');
   const [authError, setAuthError] = useState('');
-  const [authSuccess, setAuthSuccess] = useState('');
-
-  // Dashboard State
+  
   const [matchHistory, setMatchHistory] = useState([]);
   const [viewingScorecard, setViewingScorecard] = useState(null);
 
-  // Match Config & Setup Flow State
-  const [matchFormat, setMatchFormat] = useState('T20'); // 'T10' or 'T20'
-  const [team1Name, setTeam1Name] = useState('Mumbai Indians');
-  const [team2Name, setTeam2Name] = useState('Chennai Super Kings');
-  const [team1, setTeam1] = useState([]);
-  const [team2, setTeam2] = useState([]);
-  const [search1, setSearch1] = useState('');
-  const [search2, setSearch2] = useState('');
+  const [matchFormat, setMatchFormat] = useState('T20'); 
+  const [team1Name, setTeam1Name] = useState('My Team'); 
+  const [team2Name, setTeam2Name] = useState('Opponent Team');
   
-  // Interactive Toss State
+  const [team1, setTeam1] = useState([]); 
+  const [team2, setTeam2] = useState([]);
+  const [search1, setSearch1] = useState(''); 
+  const [search2, setSearch2] = useState('');
+  const [selectedFranchise1, setSelectedFranchise1] = useState(''); 
+  const [selectedFranchise2, setSelectedFranchise2] = useState('');
+
+  const [captain1, setCaptain1] = useState(''); 
+  const [captain2, setCaptain2] = useState('');
+  const [orderT1, setOrderT1] = useState([]); 
+  const [orderT2, setOrderT2] = useState([]);
+
   const [tossPhase, setTossPhase] = useState('call'); 
   const [coinFace, setCoinFace] = useState('?');
   const [tossWinnerTeam, setTossWinnerTeam] = useState('');
   const [matchDecision, setMatchDecision] = useState(''); 
+  const [oppCall, setOppCall] = useState('');
 
-  // Server-Driven Live State
   const [serverId, setServerId] = useState(null);
   const [serverData, setServerData] = useState(null);
   const [prevBalls, setPrevBalls] = useState(0);
   const [commentaryFeed, setCommentaryFeed] = useState([]);
+  const [isStarting, setIsStarting] = useState(false);
+  
+  const [selectedLang, setSelectedLang] = useState('English');
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [isAudioEnabled, setIsAudioEnabled] = useState(false);
+  
   const commentaryEndRef = useRef(null);
+  const batSound = useRef(null);
+  const wicketSound = useRef(null);
+  const cheerSound = useRef(null);
+
+  // 2. ALL FUNCTIONS (Strictly hoisted to prevent crashes)
+  
+  // RESTORED: The function that triggers the toss page!
+  function initiateToss() {
+      const call = Math.random() > 0.5 ? 'HEADS' : 'TAILS';
+      setOppCall(call); 
+      setTossPhase('call'); 
+      setAppState('toss');
+  }
+
+  // RESTORED: The function that changes commentary language!
+  async function changeLanguage(lang) {
+      setSelectedLang(lang);
+      if (serverId) {
+          fetch(`http://127.0.0.1:8000/matches/${serverId}/language`, { 
+              method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ language: lang }) 
+          }).catch(() => console.log("Lang change error"));
+      }
+  }
+
+  async function fetchHistory(userId) {
+    try { 
+        const res = await fetch(`http://127.0.0.1:8000/users/${userId}/matches`); 
+        const data = await res.json();
+        if (Array.isArray(data)) { setMatchHistory(data); } else { setMatchHistory([]); }
+    } catch (err) { setMatchHistory([]); }
+  }
+
+  function getCapName(teamArray, capId) {
+      if (!teamArray || !Array.isArray(teamArray) || !capId) return "Captain";
+      const player = teamArray.find(p => String(p.id) === String(capId));
+      return player ? player.name : "Captain";
+  }
+
+  function safePlayAudio(audioRef) {
+      if (audioRef && audioRef.current) {
+          audioRef.current.play().catch(() => console.log("Sound blocked by browser."));
+      }
+  }
+
+  async function handleAuth(endpoint) {
+    setAuthError('');
+    if (!formData.username || !formData.password) return setAuthError("Please fill in all fields.");
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+      const data = await res.json();
+      if (data.error) return setAuthError(data.error);
+      localStorage.setItem('cricverse_user', JSON.stringify(data));
+      setCurrentUser(data); 
+      fetchHistory(data.id); 
+      setAppState('dashboard');
+    } catch (err) { setAuthError("Server Offline. Ensure Python is running."); }
+  }
+
+  function handleLogout() {
+      localStorage.removeItem('cricverse_user'); 
+      setCurrentUser(null); 
+      setAppState('auth'); 
+      setAuthMode('login');
+      setFormData({ name: '', username: '', email: '', mobile: '', password: '', referral: '', agreeTerms: false });
+  }
+
+  async function handleMatchClick(match) {
+    try {
+        const res = await fetch(`http://127.0.0.1:8000/matches/${match.id}/score`);
+        const data = await res.json();
+        setServerId(match.id); 
+        setServerData(data); 
+        setSelectedLang(data.language || 'English');
+        if (data.status === 'Completed') { setViewingScorecard(data); setAppState('scorecard'); } 
+        else { setIsPlaying(false); setAppState('match'); }
+    } catch (err) { alert("Failed to fetch match. Server may be offline."); }
+  }
+
+  async function handleFastForward() {
+      setIsPlaying(false);
+      try {
+          await fetch(`http://127.0.0.1:8000/matches/${serverId}/fast-forward`, { method: 'POST' });
+          const res = await fetch(`http://127.0.0.1:8000/matches/${serverId}/score`);
+          const data = await res.json();
+          setServerData(data);
+          if (data.status === "Innings Break") { setIsPlaying(false); }
+          else if (data.status === "Completed") { setViewingScorecard(data); setAppState('scorecard'); }
+      } catch(err) { alert("Error accelerating match sequences."); }
+  }
+
+  function loadTeamTemplate(dbTeamCode, teamNum) {
+      if (!dbTeamCode) {
+          if (teamNum === 1) { setSelectedFranchise1(''); setTeam1([]); }
+          if (teamNum === 2) { setSelectedFranchise2(''); setTeam2([]); }
+          return;
+      }
+      if (teamNum === 1 && dbTeamCode === selectedFranchise2) return alert("Oops! The Opponent already selected this team.");
+      if (teamNum === 2 && dbTeamCode === selectedFranchise1) return alert("Oops! You already selected this team.");
+      
+      const roster = playerDatabase.filter(p => p.team === dbTeamCode).slice(0, 11).map(p => ({ ...p, isCaptain: false, allocated_overs: 0 }));
+      if (teamNum === 1) { setSelectedFranchise1(dbTeamCode); setTeam1(roster); } 
+      else { setSelectedFranchise2(dbTeamCode); setTeam2(roster); }
+  }
+
+  function addPlayerToTeam(player, teamNum) {
+    const newP = { ...player, isCaptain: false, allocated_overs: 0 };
+    if (teamNum === 1 && team1.length < 11) setTeam1([...team1, newP]);
+    if (teamNum === 2 && team2.length < 11) setTeam2([...team2, newP]);
+  }
+
+  function removePlayer(playerId, teamNum) {
+    if (teamNum === 1) { setTeam1(team1.filter(p => p.id !== playerId)); setSelectedFranchise1(''); }
+    if (teamNum === 2) { setTeam2(team2.filter(p => p.id !== playerId)); setSelectedFranchise2(''); }
+  }
+
+  function getFilteredPlayers(query) {
+      if (!query) return [];
+      return playerDatabase.filter(p => p.name.toLowerCase().includes(query.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function handleBattingNumberChange(teamNum, currentIndex, newPosStr) {
+      let newPos = parseInt(newPosStr) - 1;
+      if (isNaN(newPos) || newPos < 0) newPos = 0; if (newPos > 10) newPos = 10;
+      const team = teamNum === 1 ? [...team1] : [...team2];
+      const [movedPlayer] = team.splice(currentIndex, 1);
+      team.splice(newPos, 0, movedPlayer); 
+      teamNum === 1 ? setTeam1(team) : setTeam2(team);
+  }
+
+  function movePlayerArrow(teamNum, idx, dir) {
+      const team = teamNum === 1 ? [...team1] : [...team2];
+      if (dir === 'up' && idx > 0) [team[idx - 1], team[idx]] = [team[idx], team[idx - 1]];
+      else if (dir === 'down' && idx < team.length - 1) [team[idx + 1], team[idx]] = [team[idx], team[idx + 1]];
+      teamNum === 1 ? setTeam1(team) : setTeam2(team);
+  }
+
+  function autoAssignQuotas(team, format) {
+      try {
+          const maxBalls = format === 'T10' ? 10 : 20; const maxPerB = format === 'T10' ? 2 : 4;
+          let newTeam = (team || []).map(p => ({ ...p, allocated_overs: 0 }));
+          let bowlers = newTeam.filter(p => p.role === 'Bowler' || p.role === 'All-Rounder');
+          if (bowlers.length === 0) bowlers = newTeam; 
+          
+          let allocated = 0; let failsafe = 0; 
+          while(allocated < maxBalls && failsafe < 200) {
+              failsafe++;
+              for(let b of bowlers) { if (b.allocated_overs < maxPerB && allocated < maxBalls) { b.allocated_overs++; allocated++; } }
+          }
+          return newTeam;
+      } catch (err) { return team || []; }
+  }
+
+  function proceedToOvers() {
+      const reqOvers = matchFormat === 'T10' ? 10 : 20;
+      const t1Total = (team1 || []).reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
+      const t2Total = (team2 || []).reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
+      
+      if (t1Total !== reqOvers) setTeam1(autoAssignQuotas(team1, matchFormat));
+      if (t2Total !== reqOvers) setTeam2(autoAssignQuotas(team2, matchFormat));
+      
+      setAppState('bowlingQuotas');
+  }
+
+  function updateBowlerQuota(teamNum, playerId, delta) {
+      const maxFormat = matchFormat === 'T10' ? 10 : 20; const maxPerB = matchFormat === 'T10' ? 2 : 4;
+      const team = teamNum === 1 ? [...team1] : [...team2];
+      const currentTotal = team.reduce((s, p) => s + (p.allocated_overs || 0), 0);
+      const idx = team.findIndex(p => p.id === playerId);
+      if (idx === -1) return;
+
+      let newVal = (team[idx].allocated_overs || 0) + delta;
+      if (newVal < 0) newVal = 0; if (newVal > maxPerB) newVal = maxPerB;
+      if (delta > 0 && currentTotal >= maxFormat) return; 
+      team[idx].allocated_overs = newVal;
+      teamNum === 1 ? setTeam1(team) : setTeam2(team);
+  }
+
+  function validateBowlingOvers() {
+      const req = matchFormat === 'T10' ? 10 : 20;
+      const t1O = (team1 || []).reduce((s, p) => s + (p.allocated_overs || 0), 0);
+      const t2O = (team2 || []).reduce((s, p) => s + (p.allocated_overs || 0), 0);
+      if (t1O !== req || t2O !== req) return alert(`Oops! Both teams need exactly ${req} overs assigned.`);
+      
+      const genOrder = (teamArray) => {
+          try {
+              let pool = []; (teamArray || []).forEach(p => { for(let i=0; i<(p.allocated_overs||0); i++) pool.push(p.name); });
+              let order = []; let last = ""; let failsafe = 0;
+              while(pool.length > 0 && failsafe < 200) { 
+                  failsafe++;
+                  let idx = pool.findIndex(n => n !== last); 
+                  if (idx === -1) idx = 0; 
+                  if (pool[idx]) { order.push(pool[idx]); last = pool[idx]; pool.splice(idx, 1); } 
+                  else { break; }
+              }
+              return order;
+          } catch(err) { return []; }
+      };
+      
+      setOrderT1(genOrder(team1)); setOrderT2(genOrder(team2));
+      setAppState('bowlingOrder');
+  }
+
+  function handleUserFlip() {
+      setTossPhase('flip');
+      setTimeout(() => {
+          const resultFace = Math.random() > 0.5 ? 'HEADS' : 'TAILS';
+          setCoinFace(resultFace);
+          if (resultFace === oppCall) { setTossWinnerTeam(team2Name); setMatchDecision(Math.random() > 0.5 ? 'Bat' : 'Bowl'); setTossPhase('oppWin'); } 
+          else { setTossWinnerTeam(team1Name); setTossPhase('userWin'); }
+      }, 2500);
+  }
+
+  async function startServerMatch() {
+    if (isStarting) return; setIsStarting(true);
+    try {
+      let bat = team1 || []; let bowl = team2 || []; let batName = team1Name; let bowlName = team2Name;
+      let inn1Seq = orderT2 || []; let inn2Seq = orderT1 || [];
+      if ((tossWinnerTeam === team1Name && matchDecision === 'Bowl') || (tossWinnerTeam === team2Name && matchDecision === 'Bat')) {
+          bat = team2; bowl = team1; batName = team2Name; bowlName = team1Name; inn1Seq = orderT1 || []; inn2Seq = orderT2 || [];
+      }
+      const res = await fetch('http://127.0.0.1:8000/matches/', { 
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: currentUser.id, format: matchFormat, batting_team: bat, bowling_team: bowl, batting_team_name: batName, bowling_team_name: bowlName, inn1_bowling_seq: inn1Seq, inn2_bowling_seq: inn2Seq })
+      });
+      const data = await res.json(); setServerId(data.id);
+      await fetch(`http://127.0.0.1:8000/matches/${data.id}/language`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ language: selectedLang }) });
+      setCommentaryFeed([]); setPrevBalls(0); setIsPlaying(true); setAppState('match'); 
+    } catch (err) { alert("Server connection missing. Ensure Python is running!"); }
+    setIsStarting(false);
+  }
+
+  function getWinnerText() {
+      if (!viewingScorecard) return "";
+      if (viewingScorecard.match_winner === "Match Tied") return "Match Tied!";
+      return `${viewingScorecard.match_winner} Won the Match!`;
+  }
+
+  // 3. USE EFFECTS
+  useEffect(() => {
+      try {
+          if (typeof window !== 'undefined') {
+              batSound.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3');
+              wicketSound.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2811/2811-preview.mp3');
+              cheerSound.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3');
+          }
+      } catch (err) { console.log("Audio initialization skipped."); }
+  }, []);
 
   useEffect(() => { commentaryEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [commentaryFeed]);
 
-  // LOCAL STORAGE
   useEffect(() => {
-    const savedUser = localStorage.getItem('cricverse_user');
-    if (savedUser) {
-        const parsed = JSON.parse(savedUser);
-        setCurrentUser(parsed);
-        fetchHistory(parsed.id);
-        setAppState('dashboard');
+    try {
+        const savedUser = localStorage.getItem('cricverse_user');
+        if (savedUser) { 
+            const parsed = JSON.parse(savedUser); 
+            setCurrentUser(parsed); 
+            fetchHistory(parsed.id); 
+            setAppState('dashboard'); 
+        }
+    } catch (e) {
+        console.error("Storage failed or corrupted. Clearing memory.");
+        localStorage.removeItem('cricverse_user');
     }
   }, []);
 
-  // Live Polling
   useEffect(() => {
     if (appState !== 'match' || !serverId) return;
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`http://127.0.0.1:8000/matches/${serverId}/score`);
-        if (!res.ok) return;
-        const data = await res.json();
-        setServerData(data);
-        if (!data.is_active && data.balls > 0) {
-            setViewingScorecard(data);
-            setAppState('scorecard'); 
+    let timer;
+    const playNext = async () => {
+        if (!isPlaying) return;
+        if (isAudioEnabled && window.speechSynthesis?.speaking) {
+            timer = setTimeout(playNext, 1000);
+            return;
         }
-      } catch (err) { console.log("Waiting for server..."); }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [appState, serverId]);
+        try {
+            await fetch(`http://127.0.0.1:8000/matches/${serverId}/next-ball`, { method: 'POST' });
+            const res = await fetch(`http://127.0.0.1:8000/matches/${serverId}/score`);
+            if (!res.ok) return;
+            const data = await res.json();
+            setServerData(data);
+            if (data.status === "Innings Break") { setIsPlaying(false); }
+            else if (data.status === "Completed") { setIsPlaying(false); setViewingScorecard(data); setAppState('scorecard'); }
+            else { timer = setTimeout(playNext, 2500); }
+        } catch (err) { console.error("Match Engine Waiting..."); }
+    };
+    timer = setTimeout(playNext, 2500);
+    return () => clearTimeout(timer);
+  }, [appState, serverId, isPlaying, isAudioEnabled]);
 
-  // AI Commentary Reader
   useEffect(() => {
     if (serverData && serverData.balls > prevBalls) {
       setPrevBalls(serverData.balls);
       const d = serverData.last_delivery;
       if (d && d.speed) {
-        const aiText = d.commentary || "Awaiting AI analysis...";
+        const aiText = d.commentary || "Awaiting commentary...";
         setCommentaryFeed(prev => [...prev, { ball: serverData.balls, text: aiText, runs: d.result, type: d.result === 'W' ? 'wicket' : (d.result === 6 || d.result === 4) ? 'boundary' : 'normal' }]);
+        
+        if (isAudioEnabled) {
+            if (d.is_wicket) safePlayAudio(wicketSound);
+            else if (d.result === 4 || d.result === 6) { safePlayAudio(batSound); setTimeout(()=>safePlayAudio(cheerSound), 400); }
+            else if (d.result > 0) safePlayAudio(batSound);
+
+            if (window.speechSynthesis) {
+                window.speechSynthesis.cancel(); 
+                const cleanText = aiText.replace(/[.,!?"]/g, ''); 
+                const utterance = new SpeechSynthesisUtterance(cleanText);
+                utterance.lang = serverData.language === 'English' ? 'en-IN' : 'hi-IN';
+                utterance.rate = 1.02;
+                window.speechSynthesis.speak(utterance);
+            }
+        }
       }
     }
-  }, [serverData, prevBalls]);
+  }, [serverData, prevBalls, isAudioEnabled]);
 
-  // --- ACTIONS ---
 
-  const handleLogout = () => {
-      localStorage.removeItem('cricverse_user');
-      setCurrentUser(null); setAppState('auth'); setAuthMode('login');
-      setFormData({ name: '', username: '', email: '', mobile: '', password: '', referral: '', agreeTerms: false });
-  };
-
-  const handleLogin = async () => {
-    setAuthError(''); setAuthSuccess('');
-    if (!formData.username || !formData.password) return setAuthError("Please fill in all fields.");
-    try {
-      const res = await fetch(`http://127.0.0.1:8000/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: formData.username, password: formData.password }) });
-      const data = await res.json();
-      if (data.error) return setAuthError(data.error);
-      localStorage.setItem('cricverse_user', JSON.stringify(data));
-      setCurrentUser(data); fetchHistory(data.id); setAppState('dashboard');
-    } catch (err) { setAuthError("Servers offline."); }
-  };
-
-  const handleVerifyOTP = async () => {
-    setAuthError('');
-    if (otpValue !== "123456") return setAuthError("Invalid OTP. (Hint: Use 123456)");
-    try {
-      const res = await fetch(`http://127.0.0.1:8000/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: formData.name, username: formData.username, mobile: formData.mobile, email: formData.email, password: formData.password, referral_code: formData.referral }) });
-      const data = await res.json();
-      if (data.error) return setAuthError(data.error);
-      localStorage.setItem('cricverse_user', JSON.stringify(data));
-      setCurrentUser(data); fetchHistory(data.id); setAppState('dashboard');
-    } catch (err) { setAuthError("Servers offline."); }
-  };
-
-  const fetchHistory = async (userId) => {
-    try {
-      const res = await fetch(`http://127.0.0.1:8000/users/${userId}/matches`);
-      const data = await res.json();
-      setMatchHistory(data);
-    } catch (err) { console.log("Failed to fetch history"); }
-  };
-
-  const handleMatchClick = async (match) => {
-    if (match.status === 'In Progress') {
-        setServerId(match.id);
-        setAppState('match');
-        fetch(`http://127.0.0.1:8000/matches/${match.id}/start`, { method: 'POST' });
-    } else {
-        try {
-            const res = await fetch(`http://127.0.0.1:8000/matches/${match.id}/score`);
-            const data = await res.json();
-            setViewingScorecard(data);
-            setAppState('scorecard');
-        } catch (err) { alert("Failed to fetch scorecard."); }
-    }
-  };
-
-  // --- DRAFT & STRATEGY LOGIC ---
-  const addPlayerToTeam = (player, teamNum) => {
-    const newPlayer = { ...player, isCaptain: false, allocated_overs: 0 };
-    if (teamNum === 1 && team1.length < 11) setTeam1([...team1, newPlayer]);
-    if (teamNum === 2 && team2.length < 11) setTeam2([...team2, newPlayer]);
-  };
-
-  const removePlayer = (playerId, teamNum) => {
-    if (teamNum === 1) setTeam1(team1.filter(p => p.id !== playerId));
-    if (teamNum === 2) setTeam2(team2.filter(p => p.id !== playerId));
-  };
-
-  const setCaptain = (playerId, teamNum) => {
-      const updateTeam = (team) => team.map(p => p.id === playerId ? { ...p, isCaptain: true } : { ...p, isCaptain: false });
-      teamNum === 1 ? setTeam1(updateTeam(team1)) : setTeam2(updateTeam(team2));
-  };
-
-  const getFilteredPlayers = (query) => {
-      if (!query) return [];
-      const lowerQuery = query.toLowerCase();
-      return playerDatabase
-          .filter(p => p.name.toLowerCase().includes(lowerQuery))
-          .sort((a, b) => {
-              const aStarts = a.name.toLowerCase().startsWith(lowerQuery);
-              const bStarts = b.name.toLowerCase().startsWith(lowerQuery);
-              if (aStarts && !bStarts) return -1; 
-              if (!aStarts && bStarts) return 1;
-              return a.name.localeCompare(b.name);
-          });
-  };
-
-  const movePlayerOrder = (teamNum, index, direction) => {
-      const team = teamNum === 1 ? [...team1] : [...team2];
-      if (direction === 'up' && index > 0) {
-          [team[index - 1], team[index]] = [team[index], team[index - 1]];
-      } else if (direction === 'down' && index < team.length - 1) {
-          [team[index + 1], team[index]] = [team[index], team[index + 1]];
-      }
-      teamNum === 1 ? setTeam1(team) : setTeam2(team);
-  };
-
-  const updateBowlerQuota = (teamNum, playerId, delta) => {
-      const totalOversAllowed = matchFormat === 'T10' ? 10 : 20;
-      const maxPerBowler = matchFormat === 'T10' ? 2 : 4;
-      const team = teamNum === 1 ? [...team1] : [...team2];
-      
-      const currentTotal = team.reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
-      const playerIndex = team.findIndex(p => p.id === playerId);
-      const currentVal = team[playerIndex].allocated_overs || 0;
-      
-      let newVal = currentVal + delta;
-      if (newVal < 0) newVal = 0;
-      if (newVal > maxPerBowler) newVal = maxPerBowler;
-      
-      // Prevent exceeding total match overs
-      if (delta > 0 && currentTotal >= totalOversAllowed) return; 
-
-      team[playerIndex].allocated_overs = newVal;
-      teamNum === 1 ? setTeam1(team) : setTeam2(team);
-  };
-
-  const validateStrategy = () => {
-      const requiredOvers = matchFormat === 'T10' ? 10 : 20;
-      const t1Overs = team1.reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
-      const t2Overs = team2.reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
-      
-      if (t1Overs !== requiredOvers) return alert(`Allocate exactly ${requiredOvers} bowling overs for ${team1Name}. Currently: ${t1Overs}`);
-      if (t2Overs !== requiredOvers) return alert(`Allocate exactly ${requiredOvers} bowling overs for ${team2Name}. Currently: ${t2Overs}`);
-      setAppState('review');
-  };
-
-  const startTossFlip = () => {
-      setTossPhase('flip');
-      setTimeout(() => {
-          const landedOnHeads = Math.random() > 0.5;
-          setCoinFace(landedOnHeads ? 'HEADS' : 'TAILS');
-          setTossWinnerTeam(Math.random() > 0.5 ? team1Name : team2Name);
-          setTossPhase('decision');
-      }, 2000);
-  };
-
-  const startServerMatch = async () => {
-    try {
-      let battingFirst = team1;
-      let bowlingFirst = team2;
-      
-      if ((tossWinnerTeam === team1Name && matchDecision === 'Bowl') || (tossWinnerTeam === team2Name && matchDecision === 'Bat')) {
-          battingFirst = team2; bowlingFirst = team1;
-      }
-
-      const res = await fetch('http://127.0.0.1:8000/matches/', { 
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: currentUser.id, batting_team: battingFirst, bowling_team: bowlingFirst, format: matchFormat })
-      });
-      
-      const matchData = await res.json();
-      setServerId(matchData.id);
-      await fetch(`http://127.0.0.1:8000/matches/${matchData.id}/start`, { method: 'POST' });
-      setAppState('match');
-    } catch (err) { alert("Error connecting to server."); }
-  };
-
-  // Safe Math & Helpers
-  const t1OversTotal = team1.reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
-  const t2OversTotal = team2.reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
-  const totalFormatOvers = matchFormat === 'T10' ? 10 : 20;
-
-  const activeScore = serverData?.score || 0;
-  const activeWickets = serverData?.wickets || 0;
-  const activeBalls = serverData?.balls || 0;
-  const overs = Math.floor(activeBalls / 6);
-  const legalBalls = activeBalls % 6;
-  const striker = serverData?.striker || { name: "Waiting...", runs: 0, balls: 0 };
-  const bowler = serverData?.bowler || { name: "Waiting...", wickets: 0, runs: 0 };
-  const lastDelivery = serverData?.last_delivery;
-  const thisOver = serverData?.recent_overs || [];
+  // 4. SAFE UI VARIABLES
+  const reqOvers = matchFormat === 'T10' ? 10 : 20; const maxPerB = matchFormat === 'T10' ? 2 : 4;
+  const t1OversTotal = (team1 || []).reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
+  const t2OversTotal = (team2 || []).reduce((sum, p) => sum + (p.allocated_overs || 0), 0);
   
-  const cap1 = team1.find(p => p.isCaptain)?.name || "Captain 1";
-  const cap2 = team2.find(p => p.isCaptain)?.name || "Captain 2";
+  const activeScore = serverData?.score || 0; const activeWickets = serverData?.wickets || 0; const activeBalls = serverData?.balls || 0;
+  const overs = Math.floor(activeBalls / 6); const legalBalls = activeBalls % 6; const thisOver = serverData?.recent_overs || [];
+  
+  const strikerData = serverData?.batting_team?.find(p => p.name === serverData?.striker_name) || { name: "Waiting...", runs: 0, balls: 0, fours: 0, sixes: 0 };
+  const nonStrikerData = serverData?.batting_team?.find(p => p.name === serverData?.non_striker_name) || null;
+  const bowlerData = serverData?.bowling_team?.find(p => p.name === serverData?.bowler_name) || { name: "Waiting...", wickets: 0, runs_conceded: 0, balls_bowled: 0 };
+  const bOvers = Math.floor((bowlerData?.balls_bowled || 0) / 6); const bRem = (bowlerData?.balls_bowled || 0) % 6;
 
+  const topBatter = viewingScorecard?.batting_team && Array.isArray(viewingScorecard.batting_team) ? [...viewingScorecard.batting_team].sort((a,b) => b.runs - a.runs)[0] : null;
+  const topBowler = viewingScorecard?.bowling_team && Array.isArray(viewingScorecard.bowling_team) ? [...viewingScorecard.bowling_team].sort((a,b) => b.wickets - a.wickets || a.runs_conceded - b.runs_conceded)[0] : null;
+
+  // 5. RENDER
   return (
-    <div className="min-h-screen bg-slate-950 text-white font-sans overflow-hidden">
-      
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden pb-20">
       <style>{`
-        .coin-container { display: flex; justify-content: center; align-items: center; height: 140px; perspective: 800px; }
-        .coin { width: 120px; height: 120px; border-radius: 50%; transform-style: preserve-3d; display: flex; justify-content: center; align-items: center; }
-        .revolving { animation: spin 0.3s linear infinite; }
+        .coin-container { display: flex; justify-content: center; align-items: center; height: 300px; perspective: 1000px; }
+        .coin { width: 250px; height: 250px; border-radius: 50%; transform-style: preserve-3d; display: flex; justify-content: center; align-items: center; }
+        .revolving { animation: spin 0.2s linear infinite; }
         @keyframes spin { 0% { transform: rotateY(0deg); } 100% { transform: rotateY(360deg); } }
+        input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
       `}</style>
 
-      <header className="bg-slate-950 border-b border-slate-800 p-4 sticky top-0 z-40">
+      <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-40 shadow-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
-          <h1 className="text-2xl font-black tracking-tight uppercase flex items-center gap-2 cursor-pointer" onClick={() => currentUser && setAppState('dashboard')}>
+          <h1 className="text-xl md:text-2xl font-black tracking-tight uppercase flex items-center gap-2 cursor-pointer text-white" onClick={() => currentUser && setAppState('dashboard')}>
             <div className="w-6 h-6 bg-emerald-500 rounded flex items-center justify-center text-black text-xs">CP</div>
             CRICVERSE <span className="text-emerald-500">PRO</span>
           </h1>
           <div className="flex items-center gap-4">
-            {currentUser && (
-                <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold text-slate-400">Welcome, {currentUser.username}</span>
-                    <button onClick={handleLogout} className="text-xs bg-slate-800 hover:bg-red-500 hover:text-white px-2 py-1 rounded transition-colors text-slate-400">Logout</button>
-                </div>
-            )}
-            <div className="text-xs font-bold bg-slate-900 text-slate-300 px-3 py-1 rounded border border-slate-800 uppercase tracking-widest">{appState}</div>
+            {currentUser && (<button onClick={handleLogout} className="text-xs bg-slate-800 hover:bg-red-500 hover:text-white px-3 py-1 rounded font-bold">Logout</button>)}
+            <div className="text-[10px] font-bold bg-slate-950 text-slate-400 px-2 py-1 rounded border border-slate-800 uppercase">{appState}</div>
           </div>
         </div>
       </header>
@@ -289,45 +415,25 @@ function App() {
         
         {/* --- 1. AUTH SCREEN --- */}
         {appState === 'auth' && (
-          <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-2xl mt-10 text-center animate-fade-in">
-            <h2 className="text-xl font-bold mb-6 text-white uppercase tracking-widest border-b border-slate-800 pb-4">
-               {authMode === 'login' ? 'Account Login' : authMode === 'otp' ? 'Verification' : authMode === 'forgot' ? 'Reset Password' : 'Create Account'}
-            </h2>
-            
-            {authError && <div className="bg-red-500/20 text-red-500 p-3 mb-6 rounded text-sm font-bold border border-red-500/30 text-left">{authError}</div>}
-            {authSuccess && <div className="bg-emerald-500/20 text-emerald-500 p-3 mb-6 rounded text-sm font-bold border border-emerald-500/30 text-left">{authSuccess}</div>}
+          <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-2xl mt-10">
+            <h2 className="text-xl font-bold mb-6 text-white uppercase tracking-widest border-b border-slate-800 pb-4 text-center">{authMode === 'login' ? 'Login' : 'Create Account'}</h2>
+            {authError && <div className="bg-red-500/10 text-red-400 p-3 mb-6 rounded text-sm font-bold border border-red-500/20 text-left">{authError}</div>}
             
             {authMode === 'login' && (
-              <div className="space-y-4 text-left">
-                <input type="text" placeholder="Username" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
-                <input type="password" placeholder="Password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white mb-2 focus:border-emerald-500 outline-none" />
-                <div className="text-right mb-4"><button onClick={() => setAuthMode('forgot')} className="text-xs text-slate-500 hover:text-emerald-400">Forgot Password?</button></div>
-                <button onClick={handleLogin} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3 rounded text-sm uppercase tracking-widest transition-colors">Secure Login</button>
+              <div className="space-y-4">
+                <input type="text" placeholder="Username" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white outline-none" />
+                <input type="password" placeholder="Password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white outline-none" />
+                <button onClick={() => handleAuth('login')} className="w-full bg-emerald-500 text-black font-bold py-3 rounded text-sm uppercase tracking-widest hover:bg-emerald-400 transition-colors mt-2">Login</button>
                 <div className="mt-4 text-sm text-slate-500 text-center">New player? <button onClick={() => setAuthMode('register')} className="text-emerald-500 font-bold hover:underline">Register here</button></div>
               </div>
             )}
-
+            
             {authMode === 'register' && (
               <div className="space-y-4 text-left">
-                <input type="text" placeholder="Full Name *" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
-                <input type="text" placeholder="Username *" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
-                <input type="tel" placeholder="Mobile Number *" value={formData.mobile} onChange={e => setFormData({...formData, mobile: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
-                <input type="password" placeholder="Password *" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white focus:border-emerald-500 outline-none" />
-                
-                <label className="flex items-start gap-2 mt-4 cursor-pointer">
-                  <input type="checkbox" checked={formData.agreeTerms} onChange={e => setFormData({...formData, agreeTerms: e.target.checked})} className="mt-1" />
-                  <span className="text-xs text-slate-400">I agree to the Terms of Service.</span>
-                </label>
-
-                <button onClick={() => { if(!formData.agreeTerms) return setAuthError("Agree to terms"); setAuthMode('otp'); }} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3 mt-4 rounded text-sm uppercase tracking-widest transition-colors">Continue to Verification</button>
-              </div>
-            )}
-
-            {authMode === 'otp' && (
-              <div className="space-y-4 text-left">
-                <p className="text-sm text-slate-400 text-center mb-6">OTP sent to <b className="text-white">{formData.mobile}</b>.</p>
-                <input type="text" placeholder="123456" maxLength="6" value={otpValue} onChange={e => setOtpValue(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded p-4 text-center text-2xl font-mono text-white tracking-[0.5em] focus:border-emerald-500 outline-none" />
-                <button onClick={handleVerifyOTP} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3 mt-2 rounded text-sm uppercase tracking-widest transition-colors">Verify & Create Account</button>
+                <input type="text" placeholder="Username *" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white outline-none" />
+                <input type="tel" placeholder="Mobile Number *" value={formData.mobile} onChange={e => setFormData({...formData, mobile: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white outline-none" />
+                <input type="password" placeholder="Password *" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white outline-none" />
+                <button onClick={() => handleAuth('register')} className="w-full bg-emerald-500 text-black font-bold py-3 mt-4 rounded text-sm uppercase tracking-widest transition-colors">Create Account</button>
               </div>
             )}
           </div>
@@ -335,23 +441,22 @@ function App() {
 
         {/* --- 2. DASHBOARD --- */}
         {appState === 'dashboard' && (
-          <div className="max-w-4xl mx-auto animate-fade-in mt-10">
+          <div className="max-w-4xl mx-auto mt-10">
             <div className="flex justify-between items-end mb-8 border-b border-slate-800 pb-4">
-              <h2 className="text-2xl font-black uppercase tracking-widest text-slate-300">Manager Dashboard</h2>
-              <button onClick={() => { setTeam1([]); setTeam2([]); setTossPhase('call'); setAppState('config'); }} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-6 py-3 rounded uppercase tracking-widest text-sm transition-colors shadow-lg">Start New Series</button>
+              <h2 className="text-2xl font-black uppercase tracking-widest text-white">Match Dashboard</h2>
+              <button onClick={() => { setTeam1([]); setTeam2([]); setOrderT1([]); setOrderT2([]); setTeam1Name('My Team'); setTeam2Name('Opponent Team'); setCaptain1(''); setCaptain2(''); setAppState('config'); }} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-6 py-3 rounded uppercase tracking-widest text-sm shadow-lg transition-colors">Start New Match</button>
             </div>
-            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {matchHistory.length === 0 && <p className="text-slate-600 font-mono text-sm">No matches played yet.</p>}
-              {matchHistory.map(m => (
-                <div key={m.id} onClick={() => handleMatchClick(m)} className={`border p-5 rounded-lg flex justify-between items-center transition-all cursor-pointer hover:-translate-y-1 ${m.status === 'In Progress' ? 'bg-slate-900 border-emerald-500/50 hover:shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-slate-950 border-slate-800 hover:border-slate-600'}`}>
+              {(!Array.isArray(matchHistory) || matchHistory.length === 0) && <p className="text-slate-500 font-mono text-sm">No matches played yet.</p>}
+              {Array.isArray(matchHistory) && matchHistory.map(m => (
+                <div key={m.id} onClick={() => handleMatchClick(m)} className="bg-slate-900 border border-slate-800 hover:border-slate-600 p-5 rounded-xl flex justify-between items-center transition-all cursor-pointer shadow-sm">
                   <div>
-                    <div className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${m.status === 'In Progress' ? 'text-emerald-500' : 'text-slate-500'}`}>{m.format} Match #{m.id}</div>
-                    <div className="text-xl font-mono font-bold text-white">{m.score}/{m.wickets}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-widest mb-1 text-emerald-500">{m.format} Match #{m.id}</div>
+                    <div className="text-xl font-mono font-black text-white">{m.score}/{m.wickets}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-slate-500 font-mono text-sm">{Math.floor(m.balls/6)}.{m.balls%6} / {m.format === 'T10' ? 10 : 20} Ov</div>
-                    <div className="text-[10px] font-bold text-slate-600 uppercase mt-1">{m.status === 'In Progress' ? 'Resume' : 'Scorecard'}</div>
+                    <div className="text-slate-400 font-mono text-sm">{Math.floor(m.balls/6)}.{m.balls%6} / {m.format==='T10'?10:20} Ov</div>
+                    <div className="text-[10px] font-bold text-slate-500 uppercase mt-1 bg-slate-950 px-2 py-1 rounded inline-block">{m.status === 'Completed' ? 'Match Result' : 'Resume Match'}</div>
                   </div>
                 </div>
               ))}
@@ -359,108 +464,117 @@ function App() {
           </div>
         )}
 
-        {/* --- 3. CONFIG SCREEN --- */}
+        {/* --- WIZARD STEP 1: CONFIG --- */}
         {appState === 'config' && (
-          <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-2xl mt-10">
-            <h2 className="text-xl font-bold mb-6 text-white uppercase tracking-widest border-b border-slate-800 pb-4">Match Setup</h2>
-            <div className="space-y-4 mb-8">
+          <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-xl mt-10">
+            <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
+               <h2 className="text-xl font-bold text-white uppercase tracking-widest">1. Match Setup</h2>
+               <button onClick={() => setAppState('dashboard')} className="text-slate-500 text-xs font-bold hover:text-white">← Cancel</button>
+            </div>
+            
+            <div className="space-y-6 mb-8">
               <div>
                 <label className="block text-slate-500 font-bold mb-2 uppercase text-[10px] tracking-widest">Match Format</label>
                 <div className="flex gap-2">
-                    <button onClick={() => setMatchFormat('T10')} className={`flex-1 py-3 font-bold rounded text-sm uppercase transition-colors ${matchFormat === 'T10' ? 'bg-emerald-500 text-black' : 'bg-slate-950 border border-slate-800 text-slate-400 hover:bg-slate-800'}`}>T10 (10 Overs)</button>
-                    <button onClick={() => setMatchFormat('T20')} className={`flex-1 py-3 font-bold rounded text-sm uppercase transition-colors ${matchFormat === 'T20' ? 'bg-emerald-500 text-black' : 'bg-slate-950 border border-slate-800 text-slate-400 hover:bg-slate-800'}`}>T20 (20 Overs)</button>
+                    <button onClick={() => setMatchFormat('T10')} className={`flex-1 py-3 font-bold rounded text-sm uppercase transition-colors ${matchFormat === 'T10' ? 'bg-emerald-500 text-black' : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-white'}`}>T10 (10 Overs)</button>
+                    <button onClick={() => setMatchFormat('T20')} className={`flex-1 py-3 font-bold rounded text-sm uppercase transition-colors ${matchFormat === 'T20' ? 'bg-emerald-500 text-black' : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-white'}`}>T20 (20 Overs)</button>
                 </div>
               </div>
-              <div className="mt-4">
-                <label className="block text-slate-500 font-bold mb-2 uppercase text-[10px] tracking-widest">Home Team</label>
-                <input type="text" value={team1Name} onChange={(e) => setTeam1Name(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white font-bold focus:border-emerald-500 outline-none" />
-              </div>
-              <div>
-                <label className="block text-slate-500 font-bold mb-2 uppercase text-[10px] tracking-widest">Away Team</label>
-                <input type="text" value={team2Name} onChange={(e) => setTeam2Name(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white font-bold focus:border-cyan-500 outline-none" />
+              <div className="space-y-4">
+                  <div><label className="block text-slate-500 font-bold mb-2 uppercase text-[10px] tracking-widest">Your Team Name</label><input type="text" value={team1Name} onChange={(e) => setTeam1Name(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white text-sm font-bold outline-none focus:border-emerald-500" /></div>
+                  <div><label className="block text-slate-500 font-bold mb-2 uppercase text-[10px] tracking-widest">Opponent's Name</label><input type="text" value={team2Name} onChange={(e) => setTeam2Name(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-white text-sm font-bold outline-none focus:border-cyan-500" /></div>
               </div>
             </div>
-            <button onClick={() => setAppState('draft')} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-black px-6 py-3 rounded uppercase tracking-widest text-sm transition-colors">Step 1: Player Draft →</button>
+            <button onClick={() => setAppState('draft')} className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-black px-6 py-4 rounded uppercase tracking-widest text-sm transition-colors shadow-lg">Next: Pick Your Players →</button>
           </div>
         )}
 
-        {/* --- STEP 1: DRAFT (WITH 11-PLAYER RULE & CAPTAINS) --- */}
+        {/* --- WIZARD STEP 2: DRAFT --- */}
         {appState === 'draft' && (
-          <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-xl">
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
-              <h2 className="text-lg font-bold text-white uppercase tracking-widest">Step 1: Select Squads & Captains</h2>
-              <button 
-                onClick={() => { 
-                    if (team1.length !== 11 || team2.length !== 11) return alert(`Select exactly 11 players for each team.`); 
-                    if (!team1.find(p=>p.isCaptain) || !team2.find(p=>p.isCaptain)) return alert(`Assign a Captain (C) for both teams.`);
-                    setAppState('strategy'); 
-                }} 
-                className="bg-emerald-500 text-black font-bold px-6 py-2 rounded text-sm uppercase tracking-widest hover:bg-emerald-400 transition-colors">
-                Step 2: Strategy →
-              </button>
+              <button onClick={() => setAppState('config')} className="text-slate-500 hover:text-white font-bold text-sm">← Back</button>
+              <h2 className="text-lg font-bold text-white uppercase tracking-widest">2. Select Your Squads</h2>
+              <button onClick={() => {
+                  if ((team1 || []).length !== 11 || (team2 || []).length !== 11) return alert(`Please select exactly 11 players for both teams!`); 
+                  setAppState('captains');
+              }} className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold px-6 py-2 rounded text-sm uppercase tracking-widest shadow-lg">Now, select captains →</button>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Team 1 Draft */}
-              <div className="bg-slate-950 border border-slate-800 p-5 rounded-lg">
-                <h3 className="font-black text-emerald-500 uppercase tracking-widest mb-4">{team1Name} ({team1.length}/11)</h3>
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl">
+                <h3 className="font-black text-emerald-500 uppercase tracking-widest mb-4 flex justify-between items-center">
+                    {team1Name} <span className="text-xs bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20">{(team1 || []).length}/11</span>
+                </h3>
                 
-                {team1.length < 11 ? (
-                    <input type="text" placeholder="Search players (e.g. 'Smi')" value={search1} onChange={e => setSearch1(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded mb-2 text-sm font-bold focus:border-emerald-500 outline-none" />
-                ) : (
-                    <div className="bg-emerald-500/20 text-emerald-400 font-bold text-center p-3 rounded mb-2 text-sm border border-emerald-500/30">✓ 11/11 Squad Selected</div>
-                )}
-                
-                {search1 && team1.length < 11 && (
-                  <div className="bg-slate-800 rounded border border-slate-700 mb-4 max-h-[150px] overflow-y-auto custom-scrollbar">
-                    {getFilteredPlayers(search1).map(p => {
-                      const isTaken1 = team1.find(t => t.id === p.id); const isTaken2 = team2.find(t => t.id === p.id);
-                      return (<button key={p.id} disabled={isTaken1 || isTaken2} onClick={() => { addPlayerToTeam(p, 1); setSearch1(''); }} className={`w-full text-left p-2 border-b border-slate-700/50 text-xs font-bold transition-colors ${isTaken1 ? 'bg-emerald-500/20 text-emerald-500 cursor-not-allowed' : isTaken2 ? 'bg-slate-900 text-slate-600 cursor-not-allowed' : 'hover:bg-slate-700 text-white'}`}>{p.name} {isTaken2 && "(At Opponent)"} {isTaken1 && "(Drafted)"}</button>)
-                    })}
-                  </div>
-                )}
+                <div className="mb-4">
+                    <label className="block text-slate-500 font-bold mb-1 text-[10px] uppercase">Select full IPL or WPL team</label>
+                    <select value={selectedFranchise1} onChange={(e) => loadTeamTemplate(e.target.value, 1)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded text-xs font-bold outline-none text-slate-300">
+                        <option value="">Select Full Franchise Team...</option>
+                        {franchiseTeams.map(t => <option key={t.code} value={t.code} disabled={selectedFranchise2 === t.code}>{t.name}</option>)}
+                    </select>
+                </div>
 
-                <div className="space-y-2 mt-4">
-                  {team1.map(p => (
-                    <div key={p.id} className={`flex justify-between items-center border p-2 rounded ${p.isCaptain ? 'bg-emerald-500/10 border-emerald-500/50' : 'bg-slate-900 border-slate-800'}`}>
-                      <div className="flex items-center gap-3">
-                          <button onClick={() => setCaptain(p.id, 1)} className={`w-6 h-6 rounded-full text-[10px] font-black border transition-colors ${p.isCaptain ? 'bg-emerald-500 text-black border-emerald-500' : 'bg-slate-800 text-slate-500 border-slate-600 hover:bg-slate-700'}`}>C</button>
-                          <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded font-black">{p.role.substring(0,3).toUpperCase()}</span>
-                          <span className="text-sm font-bold text-slate-200">{p.name}</span>
-                      </div>
-                      <button onClick={() => removePlayer(p.id, 1)} className="text-red-500 hover:bg-red-500/20 px-2 py-1 rounded text-xs font-bold transition-colors">✕</button>
+                {(team1 || []).length < 11 && (
+                    <div className="relative mb-4">
+                        <label className="block text-slate-500 font-bold mb-1 mt-4 text-[10px] uppercase">Or select your fav players below</label>
+                        <input type="text" placeholder="Search custom players..." value={search1} onChange={e => setSearch1(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded text-sm font-bold outline-none focus:border-emerald-500" />
+                        {search1 && (
+                          <div className="absolute w-full mt-1 bg-slate-800 border border-slate-700 rounded shadow-2xl max-h-[200px] overflow-y-auto z-10 custom-scrollbar">
+                            {getFilteredPlayers(search1).map(p => {
+                              const taken1 = (team1 || []).find(t => t.id === p.id); const taken2 = (team2 || []).find(t => t.id === p.id);
+                              return (<button key={p.id} disabled={taken1 || taken2} onClick={() => { addPlayerToTeam(p, 1); setSearch1(''); }} className={`w-full text-left p-3 border-b border-slate-700/50 text-xs font-bold transition-colors ${taken1 ? 'bg-emerald-500/10 text-emerald-500' : taken2 ? 'bg-slate-900 text-slate-600' : 'hover:bg-slate-700 text-white'}`}>{p.name}</button>)
+                            })}
+                          </div>
+                        )}
+                    </div>
+                )}
+                
+                <div className="space-y-2 mt-2 h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                  {(team1 || []).map((p, idx) => (
+                    <div key={p.id} className="flex justify-between items-center border p-3 rounded-lg bg-slate-900 border-slate-800">
+                      <span className="text-sm font-bold text-white">{idx+1}. {p.name}</span>
+                      <button onClick={() => removePlayer(p.id, 1)} className="text-slate-600 hover:text-red-400 text-xs font-bold">Remove</button>
                     </div>
                   ))}
                 </div>
               </div>
 
               {/* Team 2 Draft */}
-              <div className="bg-slate-950 border border-slate-800 p-5 rounded-lg">
-                <h3 className="font-black text-cyan-500 uppercase tracking-widest mb-4">{team2Name} ({team2.length}/11)</h3>
-                {team2.length < 11 ? (
-                    <input type="text" placeholder="Search players (e.g. 'Man')" value={search2} onChange={e => setSearch2(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded mb-2 text-sm font-bold focus:border-cyan-500 outline-none" />
-                ) : (
-                    <div className="bg-cyan-500/20 text-cyan-400 font-bold text-center p-3 rounded mb-2 text-sm border border-cyan-500/30">✓ 11/11 Squad Selected</div>
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl">
+                <h3 className="font-black text-cyan-500 uppercase tracking-widest mb-4 flex justify-between items-center">
+                    {team2Name} <span className="text-xs bg-cyan-500/10 px-2 py-1 rounded border border-cyan-500/20">{(team2 || []).length}/11</span>
+                </h3>
+                
+                <div className="mb-4">
+                    <label className="block text-slate-500 font-bold mb-1 text-[10px] uppercase">Select full IPL or WPL team</label>
+                    <select value={selectedFranchise2} onChange={(e) => loadTeamTemplate(e.target.value, 2)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded text-xs font-bold outline-none text-slate-300">
+                        <option value="">Select Full Franchise Team...</option>
+                        {franchiseTeams.map(t => <option key={t.code} value={t.code} disabled={selectedFranchise1 === t.code}>{t.name}</option>)}
+                    </select>
+                </div>
+
+                {(team2 || []).length < 11 && (
+                    <div className="relative mb-4">
+                        <label className="block text-slate-500 font-bold mb-1 mt-4 text-[10px] uppercase">Or select your fav players below</label>
+                        <input type="text" placeholder="Search custom players..." value={search2} onChange={e => setSearch2(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded text-sm font-bold outline-none focus:border-cyan-500" />
+                        {search2 && (
+                          <div className="absolute w-full mt-1 bg-slate-800 border border-slate-700 rounded shadow-2xl max-h-[200px] overflow-y-auto z-10 custom-scrollbar">
+                            {getFilteredPlayers(search2).map(p => {
+                              const taken2 = (team2 || []).find(t => t.id === p.id); const taken1 = (team1 || []).find(t => t.id === p.id);
+                              return (<button key={p.id} disabled={taken1 || taken2} onClick={() => { addPlayerToTeam(p, 2); setSearch2(''); }} className={`w-full text-left p-3 border-b border-slate-700/50 text-xs font-bold ${taken2 ? 'bg-cyan-500/10 text-cyan-500' : taken1 ? 'bg-slate-900 text-slate-600' : 'hover:bg-slate-700 text-white'}`}>{p.name}</button>)
+                            })}
+                          </div>
+                        )}
+                    </div>
                 )}
                 
-                {search2 && team2.length < 11 && (
-                  <div className="bg-slate-800 rounded border border-slate-700 mb-4 max-h-[150px] overflow-y-auto custom-scrollbar">
-                    {getFilteredPlayers(search2).map(p => {
-                      const isTaken2 = team2.find(t => t.id === p.id); const isTaken1 = team1.find(t => t.id === p.id);
-                      return (<button key={p.id} disabled={isTaken1 || isTaken2} onClick={() => { addPlayerToTeam(p, 2); setSearch2(''); }} className={`w-full text-left p-2 border-b border-slate-700/50 text-xs font-bold transition-colors ${isTaken2 ? 'bg-cyan-500/20 text-cyan-500 cursor-not-allowed' : isTaken1 ? 'bg-slate-900 text-slate-600 cursor-not-allowed' : 'hover:bg-slate-700 text-white'}`}>{p.name} {isTaken1 && "(At Opponent)"} {isTaken2 && "(Drafted)"}</button>)
-                    })}
-                  </div>
-                )}
-                
-                <div className="space-y-2 mt-4">
-                  {team2.map(p => (
-                    <div key={p.id} className={`flex justify-between items-center border p-2 rounded ${p.isCaptain ? 'bg-cyan-500/10 border-cyan-500/50' : 'bg-slate-900 border-slate-800'}`}>
-                      <div className="flex items-center gap-3">
-                          <button onClick={() => setCaptain(p.id, 2)} className={`w-6 h-6 rounded-full text-[10px] font-black border transition-colors ${p.isCaptain ? 'bg-cyan-500 text-black border-cyan-500' : 'bg-slate-800 text-slate-500 border-slate-600 hover:bg-slate-700'}`}>C</button>
-                          <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded font-black">{p.role.substring(0,3).toUpperCase()}</span>
-                          <span className="text-sm font-bold text-slate-200">{p.name}</span>
-                      </div>
-                      <button onClick={() => removePlayer(p.id, 2)} className="text-red-500 hover:bg-red-500/20 px-2 py-1 rounded text-xs font-bold transition-colors">✕</button>
+                <div className="space-y-2 mt-2 h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                  {(team2 || []).map((p, idx) => (
+                    <div key={p.id} className="flex justify-between items-center border p-3 rounded-lg bg-slate-900 border-slate-800">
+                      <span className="text-sm font-bold text-white">{idx+1}. {p.name}</span>
+                      <button onClick={() => removePlayer(p.id, 2)} className="text-slate-600 hover:text-red-400 text-xs font-bold">Remove</button>
                     </div>
                   ))}
                 </div>
@@ -469,76 +583,91 @@ function App() {
           </div>
         )}
 
-        {/* --- STEP 2: STRATEGY (BATTING ORDER & BOWLING QUOTAS) --- */}
-        {appState === 'strategy' && (
-          <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-2xl animate-fade-in">
+        {/* --- WIZARD STEP 3: CAPTAINS --- */}
+        {appState === 'captains' && (
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-xl animate-fade-in">
              <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
-              <h2 className="text-lg font-bold text-white uppercase tracking-widest">Step 2: Formations & Quotas</h2>
-              <button onClick={validateStrategy} className="bg-emerald-500 text-black font-bold px-6 py-2 rounded text-sm uppercase tracking-widest hover:bg-emerald-400 transition-colors">
-                Step 3: Review Teams →
-              </button>
+              <button onClick={() => setAppState('draft')} className="text-slate-500 hover:text-white font-bold text-sm">← Back</button>
+              <h2 className="text-lg font-bold text-white uppercase tracking-widest">3. Assign Captains</h2>
+              <button onClick={() => {
+                  if (!captain1 || !captain2) return alert("Please select a captain for both teams!");
+                  setAppState('battingOrder');
+              }} className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold px-6 py-2 rounded text-sm uppercase tracking-widest shadow-lg transition-colors">Now, select batting order →</button>
             </div>
-            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-6 bg-slate-950 p-3 rounded border border-slate-800">
-                Instruction: Order your batters (1-11) using the arrows. Assign exactly {totalFormatOvers} bowling overs per team. Engine handles bowling rotation automatically based on quotas.
+            
+            <p className="text-slate-400 text-sm mb-6 bg-slate-950 p-4 rounded-lg border border-slate-800 text-center">
+                👑 Select the leader for each squad. The captain will represent the team at the match toss.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-2xl mx-auto">
+                <div className="bg-slate-950 p-6 rounded-xl border border-slate-800 text-center shadow-inner">
+                    <h3 className="font-black text-emerald-500 uppercase tracking-widest mb-4">{team1Name}</h3>
+                    <select value={captain1} onChange={(e) => setCaptain1(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded text-sm font-bold text-white outline-none">
+                        <option value="">Select Captain...</option>
+                        {(team1 || []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                </div>
+                <div className="bg-slate-950 p-6 rounded-xl border border-slate-800 text-center shadow-inner">
+                    <h3 className="font-black text-cyan-500 uppercase tracking-widest mb-4">{team2Name}</h3>
+                    <select value={captain2} onChange={(e) => setCaptain2(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-3 rounded text-sm font-bold text-white outline-none">
+                        <option value="">Select Captain...</option>
+                        {(team2 || []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- WIZARD STEP 4: BATTING ORDER --- */}
+        {appState === 'battingOrder' && (
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-xl animate-fade-in">
+             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
+              <button onClick={() => setAppState('captains')} className="text-slate-500 hover:text-white font-bold text-sm">← Back</button>
+              <h2 className="text-lg font-bold text-white uppercase tracking-widest">4. Set Batting Order</h2>
+              <button onClick={proceedToOvers} className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold px-6 py-2 rounded text-sm uppercase tracking-widest shadow-lg transition-colors">Now, assign overs →</button>
+            </div>
+            
+            <p className="text-slate-400 text-sm mb-6 bg-slate-950 p-4 rounded-lg border border-slate-800">
+                🏏 <b>Easy Sort:</b> Just type a number (1 to 11) in the box next to a player, OR click the large Up/Down arrows on the right!
             </p>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Team 1 Strategy */}
-                <div>
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-black text-emerald-500 uppercase">{team1Name}</h3>
-                        <div className={`text-xs font-bold px-3 py-1 rounded border ${t1OversTotal === totalFormatOvers ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/50' : 'bg-amber-500/20 text-amber-500 border-amber-500/50'}`}>
-                            Overs Allocated: {t1OversTotal} / {totalFormatOvers}
-                        </div>
-                    </div>
-                    
-                    <div className="space-y-1">
-                        {team1.map((p, idx) => (
-                            <div key={p.id} className="flex justify-between items-center bg-slate-950 border border-slate-800 p-2 rounded">
-                                <div className="flex items-center gap-2">
-                                    <div className="flex flex-col gap-1 mr-2">
-                                        <button onClick={() => movePlayerOrder(1, idx, 'up')} className="text-slate-500 hover:text-white">▲</button>
-                                        <button onClick={() => movePlayerOrder(1, idx, 'down')} className="text-slate-500 hover:text-white">▼</button>
-                                    </div>
-                                    <span className="text-xs text-slate-500 font-mono w-4">{idx + 1}.</span>
-                                    <span className="text-sm font-bold w-24 truncate">{p.name}</span>
+                <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl shadow-inner">
+                    <h3 className="font-black text-emerald-500 uppercase tracking-widest mb-4">{team1Name} Batting</h3>
+                    <div className="space-y-2">
+                        {(team1 || []).map((p, idx) => (
+                            <div key={p.id} className="flex justify-between items-center bg-slate-900 border border-slate-800 p-2 rounded-lg">
+                                <div className="flex items-center gap-4">
+                                    <input type="number" value={idx + 1} onChange={(e) => handleBattingNumberChange(1, idx, e.target.value)} className="w-14 bg-slate-950 border border-slate-700 text-white font-black text-center text-sm p-3 rounded outline-none focus:border-emerald-500" />
+                                    <span className="text-sm font-bold text-white">{p.name} {String(captain1) === String(p.id) && <span className="text-[10px] text-emerald-500 bg-emerald-500/10 px-1 rounded ml-1">C</span>}</span>
                                 </div>
-                                <div className="flex items-center gap-2 bg-slate-900 px-2 py-1 rounded border border-slate-800">
-                                    <span className="text-[9px] uppercase text-slate-500 font-bold mr-2">Overs:</span>
-                                    <button onClick={() => updateBowlerQuota(1, p.id, -1)} className="w-5 h-5 bg-slate-800 hover:bg-slate-700 rounded text-xs font-bold">-</button>
-                                    <span className="text-sm font-mono w-4 text-center font-bold">{p.allocated_overs}</span>
-                                    <button onClick={() => updateBowlerQuota(1, p.id, 1)} className="w-5 h-5 bg-slate-800 hover:bg-slate-700 rounded text-xs font-bold">+</button>
+                                <div className="flex items-center gap-4 pr-2">
+                                    <span className="text-[9px] bg-slate-950 text-slate-500 px-2 py-1 rounded border border-slate-800 uppercase hidden sm:inline-block">{(p.role || "").substring(0,3)}</span>
+                                    <div className="flex items-center gap-3">
+                                        <button onClick={() => movePlayerArrow(1, idx, 'up')} className="text-slate-400 hover:text-emerald-400 text-2xl leading-none">▲</button>
+                                        <button onClick={() => movePlayerArrow(1, idx, 'down')} className="text-slate-400 hover:text-emerald-400 text-2xl leading-none">▼</button>
+                                    </div>
                                 </div>
                             </div>
                         ))}
                     </div>
                 </div>
 
-                {/* Team 2 Strategy */}
-                <div>
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-black text-cyan-500 uppercase">{team2Name}</h3>
-                        <div className={`text-xs font-bold px-3 py-1 rounded border ${t2OversTotal === totalFormatOvers ? 'bg-cyan-500/20 text-cyan-500 border-cyan-500/50' : 'bg-amber-500/20 text-amber-500 border-amber-500/50'}`}>
-                            Overs Allocated: {t2OversTotal} / {totalFormatOvers}
-                        </div>
-                    </div>
-                    
-                    <div className="space-y-1">
-                        {team2.map((p, idx) => (
-                            <div key={p.id} className="flex justify-between items-center bg-slate-950 border border-slate-800 p-2 rounded">
-                                <div className="flex items-center gap-2">
-                                    <div className="flex flex-col gap-1 mr-2">
-                                        <button onClick={() => movePlayerOrder(2, idx, 'up')} className="text-slate-500 hover:text-white">▲</button>
-                                        <button onClick={() => movePlayerOrder(2, idx, 'down')} className="text-slate-500 hover:text-white">▼</button>
-                                    </div>
-                                    <span className="text-xs text-slate-500 font-mono w-4">{idx + 1}.</span>
-                                    <span className="text-sm font-bold w-24 truncate">{p.name}</span>
+                <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl shadow-inner">
+                    <h3 className="font-black text-cyan-500 uppercase tracking-widest mb-4">{team2Name} Batting</h3>
+                    <div className="space-y-2">
+                        {(team2 || []).map((p, idx) => (
+                            <div key={p.id} className="flex justify-between items-center bg-slate-900 border border-slate-800 p-2 rounded-lg">
+                                <div className="flex items-center gap-4">
+                                    <input type="number" value={idx + 1} onChange={(e) => handleBattingNumberChange(2, idx, e.target.value)} className="w-14 bg-slate-950 border border-slate-700 text-white font-black text-center text-sm p-3 rounded outline-none focus:border-cyan-500" />
+                                    <span className="text-sm font-bold text-white">{p.name} {String(captain2) === String(p.id) && <span className="text-[10px] text-cyan-500 bg-cyan-500/10 px-1 rounded ml-1">C</span>}</span>
                                 </div>
-                                <div className="flex items-center gap-2 bg-slate-900 px-2 py-1 rounded border border-slate-800">
-                                    <span className="text-[9px] uppercase text-slate-500 font-bold mr-2">Overs:</span>
-                                    <button onClick={() => updateBowlerQuota(2, p.id, -1)} className="w-5 h-5 bg-slate-800 hover:bg-slate-700 rounded text-xs font-bold">-</button>
-                                    <span className="text-sm font-mono w-4 text-center font-bold">{p.allocated_overs}</span>
-                                    <button onClick={() => updateBowlerQuota(2, p.id, 1)} className="w-5 h-5 bg-slate-800 hover:bg-slate-700 rounded text-xs font-bold">+</button>
+                                <div className="flex items-center gap-4 pr-2">
+                                    <span className="text-[9px] bg-slate-950 text-slate-500 px-2 py-1 rounded border border-slate-800 uppercase hidden sm:inline-block">{(p.role || "").substring(0,3)}</span>
+                                    <div className="flex items-center gap-3">
+                                        <button onClick={() => movePlayerArrow(2, idx, 'up')} className="text-slate-400 hover:text-cyan-400 text-2xl leading-none">▲</button>
+                                        <button onClick={() => movePlayerArrow(2, idx, 'down')} className="text-slate-400 hover:text-cyan-400 text-2xl leading-none">▼</button>
+                                    </div>
                                 </div>
                             </div>
                         ))}
@@ -548,242 +677,401 @@ function App() {
           </div>
         )}
 
-        {/* --- STEP 3: FINAL REVIEW --- */}
-        {appState === 'review' && (
+        {/* --- WIZARD STEP 5: ASSIGN OVERS --- */}
+        {appState === 'bowlingQuotas' && (
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-xl animate-fade-in">
+             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
+              <button onClick={() => setAppState('battingOrder')} className="text-slate-500 hover:text-white font-bold text-sm">← Back</button>
+              <h2 className="text-lg font-bold text-white uppercase tracking-widest">5. Assign Overs</h2>
+              <button onClick={validateBowlingOvers} className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold px-6 py-2 rounded text-sm uppercase tracking-widest shadow-lg transition-colors">Now, select bowling order →</button>
+            </div>
+            
+            <p className="text-slate-400 text-sm mb-6 bg-slate-950 p-4 rounded-lg border border-slate-800">
+                🎯 The game automatically assigned {reqOvers} overs to your top bowlers! You can change this below using the + and - buttons (Max {maxPerB} per bowler).
+            </p>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl shadow-inner">
+                    <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-3">
+                        <h3 className="font-black text-emerald-500 uppercase tracking-widest">{team1Name}</h3>
+                        <div className={`text-[10px] font-bold px-3 py-1 rounded border uppercase tracking-widest ${t1OversTotal === reqOvers ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/10 text-amber-500 border-amber-500/30'}`}>Overs Given: {t1OversTotal} / {reqOvers}</div>
+                    </div>
+                    <div className="space-y-2">
+                        {(team1 || []).map((p) => (
+                            <div key={p.id} className="flex justify-between items-center bg-slate-900 border border-slate-800 p-3 rounded-lg">
+                                <span className="text-sm font-bold text-white">{p.name} <span className="text-slate-500 text-[9px] uppercase ml-2">{(p.role || "").substring(0,3)}</span></span>
+                                <div className="flex items-center gap-3 bg-slate-950 px-3 py-1.5 rounded border border-slate-800">
+                                    <button onClick={() => updateBowlerQuota(1, p.id, -1)} className="w-8 h-8 bg-slate-800 hover:bg-slate-700 text-white rounded text-sm font-black transition-colors">-</button>
+                                    <span className="text-sm font-mono w-4 text-center font-bold text-emerald-400">{p.allocated_overs}</span>
+                                    <button disabled={t1OversTotal >= reqOvers || p.allocated_overs >= maxPerB} onClick={() => updateBowlerQuota(1, p.id, 1)} className={`w-8 h-8 rounded text-sm font-black transition-colors ${(t1OversTotal >= reqOvers || p.allocated_overs >= maxPerB) ? 'bg-slate-900 text-slate-700 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-700 text-white'}`}>+</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl shadow-inner">
+                    <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-3">
+                        <h3 className="font-black text-cyan-500 uppercase tracking-widest">{team2Name}</h3>
+                        <div className={`text-[10px] font-bold px-3 py-1 rounded border uppercase tracking-widest ${t2OversTotal === reqOvers ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' : 'bg-amber-500/10 text-amber-500 border-amber-500/30'}`}>Overs Given: {t2OversTotal} / {reqOvers}</div>
+                    </div>
+                    <div className="space-y-2">
+                        {(team2 || []).map((p) => (
+                            <div key={p.id} className="flex justify-between items-center bg-slate-900 border border-slate-800 p-3 rounded-lg">
+                                <span className="text-sm font-bold text-white">{p.name} <span className="text-slate-500 text-[9px] uppercase ml-2">{(p.role || "").substring(0,3)}</span></span>
+                                <div className="flex items-center gap-3 bg-slate-950 px-3 py-1.5 rounded border border-slate-800">
+                                    <button onClick={() => updateBowlerQuota(2, p.id, -1)} className="w-8 h-8 bg-slate-800 hover:bg-slate-700 text-white rounded text-sm font-black transition-colors">-</button>
+                                    <span className="text-sm font-mono w-4 text-center font-bold text-cyan-400">{p.allocated_overs}</span>
+                                    <button disabled={t2OversTotal >= reqOvers || p.allocated_overs >= maxPerB} onClick={() => updateBowlerQuota(2, p.id, 1)} className={`w-8 h-8 rounded text-sm font-black transition-colors ${(t2OversTotal >= reqOvers || p.allocated_overs >= maxPerB) ? 'bg-slate-900 text-slate-700 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-700 text-white'}`}>+</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- WIZARD STEP 6: BOWLING ORDER --- */}
+        {appState === 'bowlingOrder' && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-2xl animate-fade-in">
              <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
-              <h2 className="text-lg font-bold text-white uppercase tracking-widest">Step 3: Match Overview</h2>
-              <button onClick={() => setAppState('toss')} className="bg-emerald-500 text-black font-bold px-8 py-3 rounded text-sm uppercase tracking-widest hover:bg-emerald-400 transition-colors shadow-lg">
-                Proceed to Toss
-              </button>
+              <button onClick={() => setAppState('bowlingQuotas')} className="text-slate-500 hover:text-white font-bold text-sm">← Back</button>
+              <h2 className="text-lg font-bold text-white uppercase tracking-widest">6. Choose Bowling Order</h2>
+              <button onClick={() => setAppState('review')} className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold px-6 py-2 rounded text-sm uppercase tracking-widest shadow-lg transition-colors">Final Review →</button>
             </div>
             
-            <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
-                    <h3 className="font-black text-emerald-500 uppercase tracking-widest mb-4 border-b border-slate-800 pb-2">{team1Name} XI</h3>
-                    <ul className="text-sm font-bold space-y-2">
-                        {team1.map((p, i) => (
-                            <li key={p.id} className="flex justify-between">
-                                <span><span className="text-slate-500 font-mono mr-2">{i+1}.</span> {p.name} {p.isCaptain && <span className="text-emerald-500 text-xs">(C)</span>}</span>
-                                {p.allocated_overs > 0 && <span className="text-[10px] bg-slate-800 px-2 rounded font-mono text-slate-400">{p.allocated_overs} Ov</span>}
-                            </li>
+            <p className="text-slate-400 text-sm mb-6 bg-slate-950 p-4 rounded-lg border border-slate-800">
+               ✅ Good job! Simply pick who will bowl Over 1, Over 2, etc. (We guessed a good order for you, but you can change it below).
+            </p>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-slate-950 p-5 border border-slate-800 rounded-xl shadow-inner">
+                    <h3 className="font-black text-emerald-500 uppercase mb-4 tracking-widest border-b border-slate-800 pb-2">{team1Name} Order</h3>
+                    <div className="space-y-3 h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                        {(orderT1 || []).map((bowler, idx) => (
+                            <div key={`ord1-${idx}`} className="flex items-center gap-4 bg-slate-900 p-3 rounded-lg border border-slate-800">
+                                <span className="text-xs text-slate-500 font-mono w-16 uppercase font-bold tracking-widest">Over {idx+1}</span>
+                                <select value={bowler} onChange={(e) => { const n=[...orderT1]; n[idx]=e.target.value; setOrderT1(n); }} className="bg-slate-950 border border-slate-700 p-3 rounded text-sm font-bold w-full outline-none text-white focus:border-emerald-500 transition-colors">
+                                    {(team1 || []).filter(p=>p.allocated_overs>0).map(p => (<option key={`opt1-${p.id}`} value={p.name}>{p.name}</option>))}
+                                </select>
+                            </div>
                         ))}
-                    </ul>
+                    </div>
                 </div>
-                <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
-                    <h3 className="font-black text-cyan-500 uppercase tracking-widest mb-4 border-b border-slate-800 pb-2">{team2Name} XI</h3>
-                    <ul className="text-sm font-bold space-y-2">
-                        {team2.map((p, i) => (
-                            <li key={p.id} className="flex justify-between">
-                                <span><span className="text-slate-500 font-mono mr-2">{i+1}.</span> {p.name} {p.isCaptain && <span className="text-cyan-500 text-xs">(C)</span>}</span>
-                                {p.allocated_overs > 0 && <span className="text-[10px] bg-slate-800 px-2 rounded font-mono text-slate-400">{p.allocated_overs} Ov</span>}
-                            </li>
+                <div className="bg-slate-950 p-5 border border-slate-800 rounded-xl shadow-inner">
+                    <h3 className="font-black text-cyan-500 uppercase mb-4 tracking-widest border-b border-slate-800 pb-2">{team2Name} Order</h3>
+                    <div className="space-y-3 h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                        {(orderT2 || []).map((bowler, idx) => (
+                            <div key={`ord2-${idx}`} className="flex items-center gap-4 bg-slate-900 p-3 rounded-lg border border-slate-800">
+                                <span className="text-xs text-slate-500 font-mono w-16 uppercase font-bold tracking-widest">Over {idx+1}</span>
+                                <select value={bowler} onChange={(e) => { const n=[...orderT2]; n[idx]=e.target.value; setOrderT2(n); }} className="bg-slate-950 border border-slate-700 p-3 rounded text-sm font-bold w-full outline-none text-white focus:border-cyan-500 transition-colors">
+                                    {(team2 || []).filter(p=>p.allocated_overs>0).map(p => (<option key={`opt2-${p.id}`} value={p.name}>{p.name}</option>))}
+                                </select>
+                            </div>
                         ))}
-                    </ul>
+                    </div>
                 </div>
             </div>
           </div>
         )}
 
-        {/* --- 5. INTERACTIVE CAPTAINS TOSS SCREEN --- */}
+        {/* --- WIZARD STEP 7: FINAL REVIEW --- */}
+        {appState === 'review' && (
+          <div className="bg-slate-900 border border-slate-800 p-12 rounded-xl shadow-2xl animate-fade-in text-center relative overflow-hidden">
+             <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-emerald-500 to-cyan-500"></div>
+             <h2 className="text-4xl font-black text-white uppercase tracking-widest mb-6">Match Setup Complete!</h2>
+             <p className="text-slate-400 mb-10 max-w-lg mx-auto font-bold leading-relaxed text-lg">
+                 Everything looks perfect! Take a moment to review your lineups. Once you are ready, let's head out to the middle. ENJOY THE MATCH with all your selections!
+             </p>
+             <div className="flex justify-center gap-4">
+                 <button onClick={() => setAppState('bowlingOrder')} className="bg-slate-950 text-slate-400 border border-slate-800 font-bold px-8 py-4 rounded text-sm uppercase tracking-widest hover:bg-slate-800 hover:text-white transition-colors">← Wait, Go Back</button>
+                 <button onClick={initiateToss} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-12 py-4 rounded uppercase tracking-widest text-sm shadow-[0_0_30px_rgba(16,185,129,0.3)] transition-all transform hover:-translate-y-1">Proceed to Toss →</button>
+             </div>
+          </div>
+        )}
+
+        {/* --- BIGGER, BETTER TOSS SCREEN --- */}
         {appState === 'toss' && (
-          <div className="max-w-xl mx-auto bg-slate-900 border border-slate-800 p-10 rounded-xl shadow-2xl mt-10 text-center animate-fade-in relative overflow-hidden">
-            <h2 className="text-xl font-bold mb-6 text-white uppercase tracking-widest border-b border-slate-800 pb-4">Captains Toss</h2>
+          <div className="max-w-2xl mx-auto bg-slate-900 border border-slate-800 p-10 rounded-xl shadow-2xl mt-10 text-center animate-fade-in relative overflow-hidden">
+            <h2 className="text-3xl font-black mb-8 text-white uppercase tracking-widest border-b border-slate-800 pb-4">MATCH TOSS</h2>
             
-            <div className="flex justify-between items-center mb-8 px-4">
-               <div className="text-left">
-                   <div className="text-emerald-500 text-xs font-bold uppercase">{team1Name}</div>
-                   <div className="font-black text-lg">{cap1} <span className="text-slate-500 text-xs">(C)</span></div>
+            <div className="flex justify-between items-center mb-10 bg-slate-950 p-6 rounded-xl border border-slate-800">
+               <div className="text-center">
+                   <div className="text-emerald-500 text-[10px] font-bold uppercase tracking-widest mb-1">{team1Name}</div>
+                   <div className="font-black text-xl text-white">{getCapName(team1, captain1)}</div>
+                   <div className="text-slate-500 text-xs mt-1 font-mono">(My Team)</div>
                </div>
-               <div className="font-black text-slate-700 italic">VS</div>
-               <div className="text-right">
-                   <div className="text-cyan-500 text-xs font-bold uppercase">{team2Name}</div>
-                   <div className="font-black text-lg">{cap2} <span className="text-slate-500 text-xs">(C)</span></div>
+               <div className="font-black text-slate-700 italic text-2xl">VS</div>
+               <div className="text-center">
+                   <div className="text-cyan-500 text-[10px] font-bold uppercase tracking-widest mb-1">{team2Name}</div>
+                   <div className="font-black text-xl text-white">{getCapName(team2, captain2)}</div>
+                   <div className="text-slate-500 text-xs mt-1 font-mono">(Opponent)</div>
                </div>
             </div>
 
-            <div className="coin-container bg-slate-950/50 rounded-lg border border-slate-800 mb-8 py-6">
-              <div className={`coin bg-gradient-to-br from-yellow-300 via-yellow-500 to-yellow-700 border-4 border-yellow-600 shadow-[0_0_40px_rgba(234,179,8,0.3)] ${tossPhase === 'flip' ? 'revolving' : ''}`}>
-                 <div className="text-yellow-100 font-black text-2xl uppercase tracking-widest drop-shadow-md">{tossPhase === 'flip' ? '' : coinFace}</div>
+            <div className="coin-container mb-10">
+              <div className={`coin bg-gradient-to-br from-yellow-300 via-yellow-500 to-yellow-700 border-[6px] border-yellow-600 shadow-[0_0_60px_rgba(234,179,8,0.25)] ${tossPhase === 'flip' ? 'revolving' : ''}`}>
+                 <div className="text-yellow-100 font-black text-4xl uppercase tracking-widest drop-shadow-md">{tossPhase === 'flip' ? '' : coinFace}</div>
               </div>
             </div>
 
             {tossPhase === 'call' && (
                 <div className="animate-fade-in">
-                    <p className="text-slate-400 text-sm mb-4">Away Captain <b className="text-white">{cap2}</b>, call the toss:</p>
-                    <div className="flex gap-4 justify-center">
-                        <button onClick={startTossFlip} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-bold px-8 py-3 rounded text-sm uppercase transition-colors">Heads</button>
-                        <button onClick={startTossFlip} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-bold px-8 py-3 rounded text-sm uppercase transition-colors">Tails</button>
-                    </div>
+                    <p className="text-slate-400 text-sm mb-6 bg-slate-800 inline-block px-6 py-2 rounded-full border border-slate-700">Opponent Captain <b className="text-white">{getCapName(team2, captain2)}</b> calls <b className="text-white uppercase">{oppCall}</b>!</p>
+                    <div><button onClick={handleUserFlip} className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold px-12 py-4 rounded-lg text-sm uppercase tracking-widest transition-colors shadow-[0_0_20px_rgba(16,185,129,0.2)]">Flip the Coin</button></div>
                 </div>
             )}
 
-            {tossPhase === 'decision' && (
+            {tossPhase === 'userWin' && (
                 <div className="animate-fade-in">
-                    <p className="text-xl font-black text-white mb-1">{tossWinnerTeam} won the toss!</p>
-                    <p className="text-slate-400 text-sm mb-6">Captain <b className="text-white">{tossWinnerTeam === team1Name ? cap1 : cap2}</b>, what is your decision?</p>
+                    <p className="text-2xl font-black text-emerald-400 mb-2">You won the toss!</p>
+                    <p className="text-slate-400 text-sm mb-8">You are deciding on behalf of <b className="text-white">{getCapName(team1, captain1)}</b>. What is your decision?</p>
                     <div className="flex gap-4 justify-center">
-                        <button onClick={() => { setMatchDecision('Bat'); setTossPhase('result'); }} className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold px-8 py-3 rounded text-sm uppercase transition-colors">We will Bat</button>
-                        <button onClick={() => { setMatchDecision('Bowl'); setTossPhase('result'); }} className="bg-cyan-500 hover:bg-cyan-400 text-black font-bold px-8 py-3 rounded text-sm uppercase transition-colors">We will Bowl</button>
+                        <button onClick={() => { setMatchDecision('Bat'); setTossPhase('result'); }} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-bold px-10 py-4 rounded text-sm uppercase tracking-widest transition-colors">We will Bat</button>
+                        <button onClick={() => { setMatchDecision('Bowl'); setTossPhase('result'); }} className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-bold px-10 py-4 rounded text-sm uppercase tracking-widest transition-colors">We will Bowl</button>
                     </div>
+                </div>
+            )}
+            
+            {tossPhase === 'oppWin' && (
+                <div className="animate-fade-in">
+                    <p className="text-2xl font-black text-cyan-400 mb-2">Opponent won the toss!</p>
+                    <p className="text-slate-400 text-sm mb-8">Captain <b className="text-white">{getCapName(team2, captain2)}</b> has elected to <b className="text-white uppercase">{matchDecision}</b> first.</p>
+                    <button onClick={() => setTossPhase('result')} className="bg-cyan-500 hover:bg-cyan-400 text-black font-bold px-12 py-4 rounded text-sm uppercase tracking-widest transition-colors shadow-[0_0_20px_rgba(6,182,212,0.2)]">Continue</button>
                 </div>
             )}
 
             {tossPhase === 'result' && (
                 <div className="animate-fade-in">
-                    <div className="text-xl font-black text-white mb-2">{tossWinnerTeam} won the toss</div>
-                    <div className="text-slate-400 text-sm font-bold uppercase tracking-widest mb-8">and elected to <span className="text-emerald-400">{matchDecision}</span> first.</div>
-                    <button onClick={startServerMatch} className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold px-10 py-4 rounded w-full text-sm uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-                      Connect to Server & Start Match
+                    <div className="text-2xl font-black text-white mb-2">{tossWinnerTeam} won the toss</div>
+                    <div className="text-slate-400 text-sm font-bold uppercase tracking-widest mb-10">and elected to <span className="text-emerald-400">{matchDecision}</span> first.</div>
+                    <button disabled={isStarting} onClick={startServerMatch} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-12 py-5 rounded-lg w-full text-sm uppercase tracking-widest transition-all shadow-[0_0_30px_rgba(16,185,129,0.3)]">
+                      {isStarting ? "Loading Game Engine..." : "Start Match"}
                     </button>
                 </div>
             )}
           </div>
         )}
 
-        {/* --- 6. MATCH SCREEN --- */}
+        {/* --- 6. CRASH-PROOF LIVE MATCH SCREEN --- */}
         {appState === 'match' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
-            <div className="lg:col-span-2 space-y-6">
-              
-              <div className="w-full bg-slate-900 rounded-xl border border-slate-800 shadow-2xl relative overflow-hidden flex flex-col p-6">
-                <div className="flex justify-between items-center border-b border-slate-800 pb-3 mb-5">
-                  <h3 className="text-emerald-500 font-bold tracking-widest text-xs uppercase flex items-center gap-2"><div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div> Live Server Feed</h3>
+          <>
+            {!serverData ? (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center max-w-md mx-auto mt-10 shadow-2xl">
+                    <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
+                    <h3 className="text-xl font-black text-white uppercase tracking-widest">Loading Match Arena...</h3>
+                    <p className="text-xs text-slate-500 font-mono mt-2 uppercase">Connecting to live physics engine</p>
                 </div>
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 flex flex-col justify-center">
-                     <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-1 font-bold">Striker</div>
-                     <div>
-                       <div className="text-lg font-bold text-white truncate">{striker.name}</div>
-                       <div className="text-4xl font-mono text-emerald-400 mt-2 leading-none">{striker.runs}<span className="text-xl text-slate-500 font-mono ml-1">({striker.balls})</span></div>
-                     </div>
-                  </div>
-                  <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 flex flex-col justify-center">
-                     <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-1 font-bold">Bowler</div>
-                     <div>
-                       <div className="text-lg font-bold text-white truncate">{bowler.name}</div>
-                       <div className="text-4xl font-mono text-cyan-400 mt-2 leading-none">{bowler.wickets}<span className="text-xl text-slate-500 font-mono ml-1">- {bowler.runs}</span></div>
-                     </div>
-                  </div>
-                </div>
-
-                {lastDelivery && (
-                  <div className="mt-5 bg-slate-950 border border-slate-800 rounded flex justify-between p-3">
-                    <div className="text-left"><span className="text-[9px] font-bold tracking-widest text-slate-500 uppercase">Speed</span><br/><span className="text-white text-sm font-mono font-bold">{lastDelivery.speed} <span className="text-xs text-slate-500">km/h</span></span></div>
-                    <div className="text-center border-l border-r border-slate-800 px-6"><span className="text-[9px] font-bold tracking-widest text-slate-500 uppercase">Pitch Map</span><br/><span className="text-white text-xs font-bold uppercase tracking-wider">{lastDelivery.length}</span></div>
-                    <div className="text-right"><span className="text-[9px] font-bold tracking-widest text-slate-500 uppercase">Shot Zone</span><br/><span className="text-white text-xs font-bold uppercase tracking-wider">{lastDelivery.direction || 'NO SHOT'}</span></div>
-                  </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in relative">
+                
+                {serverData?.status === "Innings Break" && (
+                    <div className="absolute inset-0 bg-slate-950/90 z-50 flex items-center justify-center rounded-xl border border-emerald-500/30 backdrop-blur-sm">
+                        <div className="text-center bg-slate-900 p-12 rounded-2xl shadow-2xl border border-slate-700 max-w-lg w-full">
+                            <h2 className="text-3xl font-black text-emerald-500 mb-2 uppercase tracking-widest">Innings Break</h2>
+                            <p className="text-slate-400 mb-8 font-bold">The first innings has concluded.</p>
+                            <div className="bg-slate-950 p-8 rounded-xl mb-8 border border-slate-800 shadow-inner">
+                                <p className="text-xs text-slate-500 uppercase tracking-widest mb-3 font-bold">Target for {serverData?.batting_team_name}</p>
+                                <p className="text-7xl font-black font-mono text-white tracking-tighter">{serverData?.target_score}</p>
+                                <p className="text-[10px] text-slate-600 uppercase tracking-widest mt-3 font-bold">From {serverData?.max_balls / 6} Overs</p>
+                            </div>
+                            <button onClick={() => { fetch(`http://127.0.0.1:8000/matches/${serverId}/start-inn2`, { method: 'POST' }); setIsPlaying(true); }} className="bg-emerald-500 text-black px-12 py-5 font-black uppercase tracking-widest text-sm rounded-lg shadow-[0_0_30px_rgba(16,185,129,0.3)] hover:bg-emerald-400 transition-all w-full">Start 2nd Innings</button>
+                        </div>
+                    </div>
                 )}
-              </div>
 
-              <div className="bg-slate-900 rounded-xl p-6 border border-slate-800 shadow-xl relative overflow-hidden">
-                <div className="absolute top-4 right-6 flex items-center gap-1">
-                  {thisOver.map((ball, idx) => (
-                    <div key={idx} className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[10px] font-mono ${ball === 'W' ? 'bg-red-500/20 text-red-500 border border-red-500/50' : ball === 'Wd' || ball === 'Nb' ? 'bg-amber-500/20 text-amber-500 border border-amber-500/50' : ball === 6 || ball === 4 ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/50' : 'bg-slate-800 text-slate-300'}`}>{ball}</div>
-                  ))}
-                </div>
-                <div className="flex justify-between items-end mb-4">
-                  <div>
-                    <h3 className="text-slate-500 font-bold uppercase tracking-widest text-[10px] mb-1">Total Score</h3>
-                    <div className="text-5xl font-black tracking-tighter font-mono leading-none">{activeScore}<span className="text-3xl text-slate-600">/{activeWickets}</span></div>
-                  </div>
-                  <div className="text-right">
-                    <h3 className="text-slate-500 font-bold uppercase tracking-widest text-[10px] mb-1">Overs</h3>
-                    <div className="text-3xl font-black text-white font-mono leading-none">{overs}.{legalBalls}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="w-full bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl relative overflow-hidden flex flex-col">
+                    
+                    <div className="flex justify-between items-center border-b border-slate-800 bg-slate-950/50 p-4">
+                      <h3 className="text-emerald-500 font-bold tracking-widest text-[10px] uppercase flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]' : 'bg-amber-500'}`}></div> 
+                          {isPlaying ? 'Live Match Active' : 'Match Paused'}
+                      </h3>
+                      
+                      <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-700 p-1">
+                              <button onClick={() => setIsPlaying(!isPlaying)} className="flex items-center justify-center px-3 py-1.5 rounded text-[10px] font-black tracking-widest bg-slate-950 hover:bg-slate-800 transition-colors">
+                                  {isPlaying ? '⏸ PAUSE' : '▶ PLAY'}
+                              </button>
+                              <button onClick={handleFastForward} className="flex items-center justify-center px-3 py-1.5 rounded text-[10px] font-black tracking-widest bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors">
+                                  ⏩ SKIP INNINGS
+                              </button>
+                              <button onClick={() => setIsAudioEnabled(!isAudioEnabled)} className={`flex items-center justify-center px-3 py-1.5 rounded text-[10px] font-black tracking-widest transition-colors ${isAudioEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500 hover:text-white'}`}>
+                                  {isAudioEnabled ? '🔊 AUDIO ON' : '🔇 AUDIO OFF'}
+                              </button>
+                          </div>
+                          <select value={selectedLang} onChange={(e) => changeLanguage(e.target.value)} className="bg-slate-900 border border-slate-700 text-slate-300 text-[10px] font-bold uppercase rounded-lg p-2 outline-none cursor-pointer focus:border-emerald-500 transition-colors">
+                              <option value="English">ENG Audio</option>
+                              <option value="Hindi">HIN Audio</option>
+                              <option value="Punjabi">PUN Audio</option>
+                          </select>
+                      </div>
+                    </div>
+                    
+                    <div className="p-6">
+                        <div className="flex justify-between items-end mb-8 bg-slate-950 p-6 border border-slate-800 rounded-xl shadow-inner">
+                          <div>
+                            <h3 className="text-slate-500 font-bold uppercase tracking-widest text-[10px] mb-2">{serverData?.batting_team_name} Batting</h3>
+                            <div className="text-6xl font-black tracking-tighter font-mono leading-none text-white">{activeScore}<span className="text-4xl text-slate-600">/{activeWickets}</span></div>
+                            {serverData?.innings === 2 && (
+                                <div className="text-[10px] bg-amber-500/10 text-amber-500 px-3 py-1 rounded border border-amber-500/20 font-bold uppercase tracking-widest mt-3 inline-block">Target: {serverData?.target_score}</div>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <h3 className="text-slate-500 font-bold uppercase tracking-widest text-[10px] mb-2">Overs</h3>
+                            <div className="text-4xl font-black text-emerald-400 font-mono leading-none">{overs}.{legalBalls}</div>
+                            <div className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-3 bg-slate-900 px-2 py-1 rounded inline-block">Max {serverData?.format === 'T10' ? 10 : 20}</div>
+                          </div>
+                        </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col h-[550px]">
-              <h3 className="text-xs uppercase tracking-widest font-bold text-slate-400 mb-4 pb-3 border-b border-slate-800">Live Commentary</h3>
-              <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-                {commentaryFeed.length === 0 && <p className="text-slate-600 text-center mt-10 text-sm font-mono">Awaiting first delivery from server...</p>}
-                {commentaryFeed.map((comm, idx) => (
-                  <div key={idx} className="animate-fade-in flex gap-3 border-b border-slate-800/50 pb-3">
-                    <div className={`shrink-0 w-8 h-8 rounded flex items-center justify-center font-bold text-xs font-mono border ${comm.type === 'wicket' ? 'bg-red-500/10 text-red-500 border-red-500/30' : comm.type === 'extra' ? 'bg-amber-500/10 text-amber-500 border-amber-500/30' : comm.type === 'boundary' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
-                      {comm.runs !== undefined ? comm.runs : '...'}
-                    </div>
-                    <div className="text-sm text-slate-300 flex-1 leading-relaxed mt-1">
-                      <span className="font-mono text-[10px] text-slate-500 block mb-1">Over {Math.floor((comm.ball-1)/6)}.{(comm.ball-1)%6 + 1}</span>
-                      {comm.text}
+                        <div className="bg-slate-950 border border-slate-800 rounded-xl mb-6 overflow-hidden shadow-sm">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-900 border-b border-slate-800 text-[9px] uppercase tracking-widest text-slate-500">
+                                    <tr><th className="p-3 pl-5">Batter</th><th className="p-3 text-right">R</th><th className="p-3 text-right">B</th><th className="p-3 text-right">4s</th><th className="p-3 text-right">6s</th><th className="p-3 text-right pr-5">SR</th></tr>
+                                </thead>
+                                <tbody className="font-mono text-xs">
+                                    <tr className="bg-slate-900/30">
+                                        <td className="p-3 pl-5 font-bold text-white font-sans">{strikerData?.name || "Waiting..."} <span className="text-emerald-500 text-lg leading-none align-middle">*</span></td>
+                                        <td className="p-3 text-right font-black text-white text-sm">{strikerData?.runs || 0}</td><td className="p-3 text-right text-slate-400">{strikerData?.balls || 0}</td>
+                                        <td className="p-3 text-right text-slate-400">{strikerData?.fours || 0}</td><td className="p-3 text-right text-slate-400">{strikerData?.sixes || 0}</td>
+                                        <td className="p-3 text-right text-slate-500 pr-5">{(strikerData?.balls || 0) > 0 ? ((strikerData?.runs || 0)/(strikerData?.balls || 1)*100).toFixed(1) : '-'}</td>
+                                    </tr>
+                                    {nonStrikerData && (
+                                    <tr>
+                                        <td className="p-3 pl-5 font-bold text-slate-400 font-sans">{nonStrikerData.name}</td>
+                                        <td className="p-3 text-right font-bold text-slate-300">{nonStrikerData.runs || 0}</td><td className="p-3 text-right text-slate-500">{nonStrikerData.balls || 0}</td>
+                                        <td className="p-3 text-right text-slate-500">{nonStrikerData.fours || 0}</td><td className="p-3 text-right text-slate-500">{nonStrikerData.sixes || 0}</td>
+                                        <td className="p-3 text-right text-slate-600 pr-5">{(nonStrikerData.balls || 0) > 0 ? ((nonStrikerData?.runs || 0)/(nonStrikerData?.balls || 1)*100).toFixed(1) : '-'}</td>
+                                    </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-900 border-b border-slate-800 text-[9px] uppercase tracking-widest text-slate-500">
+                                    <tr><th className="p-3 pl-5">Bowler</th><th className="p-3 text-right">O</th><th className="p-3 text-right">R</th><th className="p-3 text-right">W</th><th className="p-3 text-right pr-5">Econ</th></tr>
+                                </thead>
+                                <tbody className="font-mono text-xs">
+                                    <tr>
+                                        <td className="p-3 pl-5 font-bold text-white font-sans">{bowlerData?.name || "Waiting..."} <span className="text-cyan-500 text-lg leading-none align-middle">*</span></td>
+                                        <td className="p-3 text-right font-bold text-white">{bOvers}.{bRem}</td><td className="p-3 text-right text-slate-400">{bowlerData?.runs_conceded || 0}</td>
+                                        <td className="p-3 text-right text-cyan-400 font-black text-sm">{bowlerData?.wickets || 0}</td>
+                                        <td className="p-3 text-right text-slate-500 pr-5">{(bowlerData?.balls_bowled || 0) > 0 ? ((bowlerData?.runs_conceded || 0)/(bowlerData?.balls_bowled || 1)*6).toFixed(1) : '-'}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                   </div>
-                ))}
-                <div ref={commentaryEndRef} />
+
+                  <div className="bg-slate-900 rounded-xl p-6 border border-slate-800 shadow-xl relative overflow-hidden">
+                    <div className="flex items-center gap-4 mb-4">
+                      <h3 className="text-slate-500 font-bold uppercase tracking-widest text-[10px] whitespace-nowrap">This Over</h3>
+                      <div className="flex-1 h-px bg-slate-800"></div>
+                    </div>
+                    <div className="flex items-center gap-3 overflow-x-auto custom-scrollbar pb-2">
+                      {thisOver.length === 0 && <span className="text-xs text-slate-600 font-mono italic">Awaiting delivery...</span>}
+                      {thisOver.map((ball, idx) => (
+                        <div key={`ball-${idx}`} className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center font-black text-sm font-mono border shadow-sm ${ball === 'W' ? 'bg-red-500/20 text-red-500 border-red-500/50' : ball === 'Wd' || ball === 'Nb' ? 'bg-amber-500/20 text-amber-500 border-amber-500/50' : ball === 6 || ball === 4 ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/50' : 'bg-slate-950 text-slate-300 border-slate-700'}`}>{ball}</div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col h-[650px] shadow-2xl">
+                  <h3 className="text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-5 pb-4 border-b border-slate-800 flex justify-between items-center">
+                      Live Play-by-Play 
+                      <span className={`text-[9px] px-2 py-1 rounded border ${isAudioEnabled ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-slate-950 text-slate-600 border-slate-800'}`}>
+                          Audio: {isAudioEnabled ? 'ON' : 'OFF'}
+                      </span>
+                  </h3>
+                  <div className="flex-1 overflow-y-auto space-y-4 pr-3 custom-scrollbar">
+                    {commentaryFeed.length === 0 && <p className="text-slate-600 text-center mt-10 text-xs font-mono italic">Match is starting...</p>}
+                    {commentaryFeed.map((comm, idx) => (
+                      <div key={`comm-${idx}`} className="animate-fade-in flex gap-4 border-b border-slate-800/50 pb-4">
+                        <div className={`shrink-0 w-10 h-10 rounded-lg flex items-center justify-center font-black text-sm font-mono border shadow-sm ${comm.type === 'wicket' ? 'bg-red-500/10 text-red-500 border-red-500/30' : comm.type === 'boundary' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' : 'bg-slate-950 text-slate-400 border-slate-800'}`}>{comm.runs !== undefined ? comm.runs : '...'}</div>
+                        <div className="text-sm text-slate-300 flex-1 leading-relaxed">
+                          <span className="font-mono text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Ov {Math.floor((comm.ball-1)/6)}.{(comm.ball-1)%6 + 1}</span>
+                          {comm.text}
+                        </div>
+                      </div>
+                    ))}
+                    <div ref={commentaryEndRef} />
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            )}
+          </>
         )}
 
         {/* --- 7. POST MATCH SCORECARD --- */}
         {appState === 'scorecard' && viewingScorecard && (
-          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-2xl mt-10 animate-fade-in">
-             <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
-                 <h2 className="text-2xl font-black uppercase tracking-widest text-white">{viewingScorecard.format} Scorecard</h2>
-                 <button onClick={() => setAppState('dashboard')} className="text-emerald-500 text-sm font-bold uppercase tracking-widest hover:underline">← Back to Dashboard</button>
+          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 p-10 rounded-2xl shadow-2xl mt-10 animate-fade-in">
+             <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-6">
+                 <h2 className="text-2xl font-black uppercase tracking-widest text-white">Match Result</h2>
+                 <button onClick={() => setAppState('dashboard')} className="text-emerald-500 text-xs font-bold uppercase tracking-widest hover:underline bg-emerald-500/10 px-4 py-2 rounded transition-colors">← Dashboard</button>
              </div>
 
-             <div className="flex justify-between items-end mb-8 bg-slate-950 p-6 rounded-lg border border-slate-800">
-                <div>
-                   <h3 className="text-xs uppercase font-bold text-slate-500 tracking-widest mb-1">Final Score</h3>
-                   <div className="text-5xl font-mono font-black text-white">{viewingScorecard.score}/{viewingScorecard.wickets}</div>
+             <div className="text-center mb-10 bg-slate-950 p-8 rounded-xl border border-slate-800 shadow-inner">
+                 <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px] mb-3">Final Outcome ({viewingScorecard?.format})</p>
+                 <h2 className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 uppercase tracking-tight">{getWinnerText()}</h2>
+             </div>
+
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                <div className="bg-slate-950 p-6 rounded-xl border border-slate-800 text-center shadow-sm">
+                   <h3 className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-2">{viewingScorecard?.bowling_team_name} (1st Inn)</h3>
+                   <div className="text-5xl font-mono font-black text-white">{viewingScorecard?.inn1_score}<span className="text-3xl text-slate-600">/{viewingScorecard?.inn1_wickets}</span></div>
+                   <div className="text-xs font-mono font-bold text-slate-500 mt-3 bg-slate-900 inline-block px-3 py-1 rounded">{Math.floor((viewingScorecard?.inn1_balls || 0)/6)}.{(viewingScorecard?.inn1_balls || 0)%6} Overs</div>
                 </div>
-                <div className="text-right">
-                   <div className="text-xl font-mono text-slate-400">{Math.floor(viewingScorecard.balls/6)}.{viewingScorecard.balls%6} Overs</div>
+                <div className="bg-slate-950 p-6 rounded-xl border border-emerald-500/30 text-center relative overflow-hidden shadow-sm">
+                   <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500"></div>
+                   <h3 className="text-[10px] uppercase font-bold text-emerald-500 tracking-widest mb-2">{viewingScorecard?.batting_team_name} (2nd Inn)</h3>
+                   <div className="text-5xl font-mono font-black text-white">{viewingScorecard?.score}<span className="text-3xl text-slate-600">/{viewingScorecard?.wickets}</span></div>
+                   <div className="text-xs font-mono font-bold text-slate-500 mt-3 bg-slate-900 inline-block px-3 py-1 rounded">{Math.floor((viewingScorecard?.balls || 0)/6)}.{(viewingScorecard?.balls || 0)%6} Overs</div>
                 </div>
              </div>
 
-             <h3 className="font-bold text-emerald-500 uppercase tracking-widest mb-4">Batting Innings</h3>
-             <div className="bg-slate-950 rounded-lg border border-slate-800 overflow-hidden mb-8">
+             {/* SAFE SHOWCASE PERFORMERS */}
+             <div className="flex flex-col sm:flex-row gap-4 mb-10">
+                 <div className="flex-1 bg-gradient-to-br from-emerald-900/40 to-slate-900 p-5 rounded-xl border border-emerald-500/30">
+                     <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest mb-1">Top Match Batter</p>
+                     <p className="text-lg font-black text-white">{topBatter?.name || "N/A"}</p>
+                     <p className="text-sm font-mono text-emerald-400 font-bold">{topBatter?.runs || 0} runs <span className="text-slate-500 text-xs ml-1">({topBatter?.balls || 0} balls)</span></p>
+                 </div>
+                 <div className="flex-1 bg-gradient-to-br from-cyan-900/40 to-slate-900 p-5 rounded-xl border border-cyan-500/30">
+                     <p className="text-[10px] text-cyan-500 font-bold uppercase tracking-widest mb-1">Top Match Bowler</p>
+                     <p className="text-lg font-black text-white">{topBowler?.name || "N/A"}</p>
+                     <p className="text-sm font-mono text-cyan-400 font-bold">{topBowler?.wickets || 0} wkts <span className="text-slate-500 text-xs ml-1">({topBowler?.runs_conceded || 0} runs)</span></p>
+                 </div>
+             </div>
+
+             <h3 className="font-black text-emerald-500 uppercase tracking-widest mb-3 text-sm">{viewingScorecard?.batting_team_name} Innings</h3>
+             <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden mb-10 shadow-sm">
                  <table className="w-full text-left text-sm">
-                     <thead className="bg-slate-900 border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
-                         <tr><th className="p-3">Batter</th><th className="p-3">Status</th><th className="p-3 text-right">R</th><th className="p-3 text-right">B</th><th className="p-3 text-right">4s</th><th className="p-3 text-right">6s</th><th className="p-3 text-right">SR</th></tr>
+                     <thead className="bg-slate-900 border-b border-slate-800 text-[9px] uppercase tracking-widest text-slate-500">
+                         <tr><th className="p-4 pl-6">Batter</th><th className="p-4">Status</th><th className="p-4 text-right">R</th><th className="p-4 text-right">B</th><th className="p-4 text-right">4s</th><th className="p-4 text-right">6s</th><th className="p-4 text-right pr-6">SR</th></tr>
                      </thead>
-                     <tbody className="divide-y divide-slate-800 font-mono">
-                         {viewingScorecard.batting_team?.map(p => (
-                             <tr key={p.id} className="hover:bg-slate-900/50">
-                                 <td className="p-3 font-bold text-white font-sans">{p.name} {p.isCaptain && <span className="text-emerald-500 text-[10px]">(C)</span>}</td>
-                                 <td className="p-3 text-slate-400 text-xs">{p.status}</td>
-                                 <td className="p-3 text-right font-bold text-emerald-400">{p.runs}</td>
-                                 <td className="p-3 text-right text-slate-300">{p.balls}</td>
-                                 <td className="p-3 text-right text-slate-400">{p.fours}</td>
-                                 <td className="p-3 text-right text-slate-400">{p.sixes}</td>
-                                 <td className="p-3 text-right text-slate-500">{p.balls > 0 ? ((p.runs/p.balls)*100).toFixed(1) : '-'}</td>
+                     <tbody className="divide-y divide-slate-800/50 font-mono text-xs">
+                         {(Array.isArray(viewingScorecard?.batting_team) ? viewingScorecard.batting_team : []).map(p => (
+                             <tr key={`bat-${p.id}`} className="hover:bg-slate-900/50 transition-colors">
+                                 <td className="p-4 pl-6 font-bold text-white font-sans">{p.name} {p.isCaptain && <span className="text-emerald-500 text-[9px] bg-emerald-500/10 px-1 rounded ml-1 border border-emerald-500/20">C</span>}</td>
+                                 <td className="p-4 text-slate-400 text-[10px] uppercase tracking-wider">{p.status}</td>
+                                 <td className="p-4 text-right font-black text-emerald-400 text-sm">{p.runs}</td>
+                                 <td className="p-4 text-right text-slate-400">{p.balls}</td>
+                                 <td className="p-4 text-right text-slate-500">{p.fours}</td>
+                                 <td className="p-4 text-right text-slate-500">{p.sixes}</td>
+                                 <td className="p-4 text-right text-slate-600 pr-6 font-bold">{p.balls > 0 ? ((p.runs/p.balls)*100).toFixed(1) : '-'}</td>
                              </tr>
                          ))}
                      </tbody>
                  </table>
              </div>
-
-             <h3 className="font-bold text-cyan-500 uppercase tracking-widest mb-4">Bowling Analysis</h3>
-             <div className="bg-slate-950 rounded-lg border border-slate-800 overflow-hidden">
-                 <table className="w-full text-left text-sm">
-                     <thead className="bg-slate-900 border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
-                         <tr><th className="p-3">Bowler</th><th className="p-3 text-right">O</th><th className="p-3 text-right">R</th><th className="p-3 text-right">W</th><th className="p-3 text-right">Econ</th></tr>
-                     </thead>
-                     <tbody className="divide-y divide-slate-800 font-mono">
-                         {viewingScorecard.bowling_team?.filter(p => p.balls_bowled > 0).map(p => {
-                             const overs = Math.floor(p.balls_bowled/6);
-                             const rem = p.balls_bowled%6;
-                             const overStr = `${overs}.${rem}`;
-                             const econ = p.balls_bowled > 0 ? ((p.runs_conceded / p.balls_bowled) * 6).toFixed(1) : '-';
-                             return (
-                                 <tr key={p.id} className="hover:bg-slate-900/50">
-                                     <td className="p-3 font-bold text-white font-sans">{p.name} {p.isCaptain && <span className="text-cyan-500 text-[10px]">(C)</span>}</td>
-                                     <td className="p-3 text-right text-slate-300">{overStr}</td>
-                                     <td className="p-3 text-right text-slate-400">{p.runs_conceded}</td>
-                                     <td className="p-3 text-right font-bold text-cyan-400">{p.wickets}</td>
-                                     <td className="p-3 text-right text-slate-500">{econ}</td>
-                                 </tr>
-                             )
-                         })}
-                     </tbody>
-                 </table>
-             </div>
           </div>
         )}
-
       </main>
     </div>
   );
