@@ -10,7 +10,7 @@ const franchiseTeams = [
     { name: 'RCB Women', code: 'RCB-W' }
 ];
 
-export default function App() {
+function App() {
   const [appState, setAppState] = useState('auth'); 
   const [currentUser, setCurrentUser] = useState(null);
   const [authMode, setAuthMode] = useState('login'); 
@@ -65,14 +65,20 @@ export default function App() {
               wicketSound.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2811/2811-preview.mp3');
               cheerSound.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3');
           }
-      } catch (err) {}
+      } catch (err) {
+          console.log("Audio skipped.");
+      }
   }, []);
 
   function safePlayAudio(audioRef) {
-      if (audioRef && audioRef.current) { audioRef.current.play().catch(() => {}); }
+      if (audioRef && audioRef.current) {
+          audioRef.current.play().catch(() => console.log("Sound blocked by browser."));
+      }
   }
 
-  useEffect(() => { commentaryEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [commentaryFeed]);
+  useEffect(() => { 
+      commentaryEndRef.current?.scrollIntoView({ behavior: "smooth" }); 
+  }, [commentaryFeed]);
 
   useEffect(() => {
     try {
@@ -83,10 +89,11 @@ export default function App() {
             fetchHistory(parsed.id); 
             setAppState('dashboard'); 
         }
-    } catch (e) { localStorage.removeItem('cricverse_user'); }
+    } catch (e) {
+        localStorage.removeItem('cricverse_user');
+    }
   }, []);
 
-  // --- DASHBOARD REFRESH HELPER ---
   const goToDashboard = () => {
       if (currentUser) {
           fetchHistory(currentUser.id);
@@ -96,26 +103,44 @@ export default function App() {
 
   useEffect(() => {
     if (appState !== 'match' || !serverId) return;
+
     let timer;
     const playNext = async () => {
-        if (!isPlaying || (isAudioEnabled && window.speechSynthesis?.speaking)) {
-            timer = setTimeout(playNext, 1000); return;
+        if (!isPlaying) return;
+        
+        if (isAudioEnabled && window.speechSynthesis?.speaking) {
+            timer = setTimeout(playNext, 1000);
+            return;
         }
+
         try {
             await fetch(`http://127.0.0.1:8000/matches/${serverId}/next-ball`, { method: 'POST' });
             const res = await fetch(`http://127.0.0.1:8000/matches/${serverId}/score`);
             if (!res.ok) return;
+            
             const data = await res.json();
             setServerData(data);
-            if (data.status === "Innings Break") { setIsPlaying(false); }
-            else if (data.status === "Completed") { setIsPlaying(false); setViewingScorecard(data); setAppState('scorecard'); }
-            else { 
-                const delay = data.balls === 0 ? 5000 : 4500;
-                timer = setTimeout(playNext, delay); 
+            
+            if (data.status === "Innings Break") { 
+                setIsPlaying(false); 
             }
-        } catch (err) {}
+            else if (data.status === "Completed") { 
+                setIsPlaying(false); 
+                setViewingScorecard(data); 
+                setAppState('scorecard'); 
+            }
+            else { 
+                timer = setTimeout(playNext, 4500); 
+            }
+        } catch (err) {
+            console.error("Waiting for backend...");
+        }
     };
-    timer = setTimeout(playNext, 5000);
+
+    // Implements the 5-second delay before the very first ball of an innings is bowled
+    const initialDelay = 5000;
+    timer = setTimeout(playNext, initialDelay);
+
     return () => clearTimeout(timer);
   }, [appState, serverId, isPlaying, isAudioEnabled]);
 
@@ -124,25 +149,35 @@ export default function App() {
       setPrevBalls(serverData.balls);
       const d = serverData.last_delivery;
       if (d && d.speed) {
+        const aiText = d.commentary || "Awaiting commentary...";
+        
         setCommentaryFeed(prev => [
             ...prev, 
             { 
                 ball: serverData.balls, 
                 over_str: d.over_str,
-                text: d.commentary, 
+                text: aiText, 
                 runs: d.result, 
                 type: d.result === 'W' ? 'wicket' : (d.result === 6 || d.result === 4) ? 'boundary' : 'normal' 
             }
         ]);
+        
         if (isAudioEnabled) {
-            if (d.is_wicket) safePlayAudio(wicketSound);
-            else if (d.result === 4 || d.result === 6) { safePlayAudio(batSound); setTimeout(() => safePlayAudio(cheerSound), 400); } 
-            else if (d.result > 0) safePlayAudio(batSound);
+            if (d.is_wicket) {
+                safePlayAudio(wicketSound);
+            } else if (d.result === 4 || d.result === 6) { 
+                safePlayAudio(batSound); 
+                setTimeout(() => safePlayAudio(cheerSound), 400); 
+            } else if (d.result > 0) {
+                safePlayAudio(batSound);
+            }
 
             if (window.speechSynthesis) {
                 window.speechSynthesis.cancel(); 
-                const utterance = new SpeechSynthesisUtterance(d.commentary.replace(/[.,!?"]/g, ''));
+                const cleanText = aiText.replace(/[.,!?"]/g, ''); 
+                const utterance = new SpeechSynthesisUtterance(cleanText);
                 utterance.lang = serverData.language === 'English' ? 'en-IN' : 'hi-IN';
+                utterance.rate = 1.0;
                 window.speechSynthesis.speak(utterance);
             }
         }
@@ -154,16 +189,29 @@ export default function App() {
     setAuthError('');
     if (!formData.username || !formData.password) return setAuthError("Please fill in all fields.");
     try {
-      const res = await fetch(`http://127.0.0.1:8000/${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+      const res = await fetch(`http://127.0.0.1:8000/${endpoint}`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify(formData) 
+      });
       const data = await res.json();
+      
       if (data.error) return setAuthError(data.error);
+      
       localStorage.setItem('cricverse_user', JSON.stringify(data));
-      setCurrentUser(data); fetchHistory(data.id); setAppState('dashboard');
-    } catch (err) { setAuthError("Server Offline."); }
+      setCurrentUser(data); 
+      fetchHistory(data.id); 
+      setAppState('dashboard');
+    } catch (err) { 
+        setAuthError("Server Offline. Ensure Python is running."); 
+    }
   }
 
   function handleLogout() {
-      localStorage.removeItem('cricverse_user'); setCurrentUser(null); setAppState('auth'); setAuthMode('login');
+      localStorage.removeItem('cricverse_user'); 
+      setCurrentUser(null); 
+      setAppState('auth'); 
+      setAuthMode('login');
       setFormData({ name: '', username: '', email: '', mobile: '', password: '', referral: '', agreeTerms: false });
   }
 
@@ -171,18 +219,35 @@ export default function App() {
     try { 
         const res = await fetch(`http://127.0.0.1:8000/users/${userId}/matches`); 
         const data = await res.json();
-        setMatchHistory(Array.isArray(data) ? data : []);
-    } catch (err) { setMatchHistory([]); }
+        if (Array.isArray(data)) { 
+            setMatchHistory(data); 
+        } else { 
+            setMatchHistory([]); 
+        }
+    } catch (err) { 
+        setMatchHistory([]); 
+    }
   }
 
   async function handleMatchClick(match) {
     try {
         const res = await fetch(`http://127.0.0.1:8000/matches/${match.id}/score`);
         const data = await res.json();
-        setServerId(match.id); setServerData(data); setSelectedLang(data.language || 'English');
-        if (data.status === 'Completed') { setViewingScorecard(data); setAppState('scorecard'); } 
-        else { setPrevBalls(data.balls); setIsPlaying(false); setAppState('match'); }
-    } catch (err) { alert("Failed to fetch match."); }
+        setServerId(match.id); 
+        setServerData(data); 
+        setSelectedLang(data.language || 'English');
+        
+        if (data.status === 'Completed') { 
+            setViewingScorecard(data); 
+            setAppState('scorecard'); 
+        } else { 
+            setPrevBalls(data.balls);
+            setIsPlaying(false); 
+            setAppState('match'); 
+        }
+    } catch (err) { 
+        alert("Failed to fetch match. Server may be offline."); 
+    }
   }
 
   async function handleFastForward() {
@@ -192,14 +257,27 @@ export default function App() {
           const res = await fetch(`http://127.0.0.1:8000/matches/${serverId}/score`);
           const data = await res.json();
           setServerData(data);
-          if (data.status === "Innings Break") { setIsPlaying(false); } 
-          else if (data.status === "Completed") { setViewingScorecard(data); setAppState('scorecard'); }
-      } catch(err) { alert("Error accelerating match sequences."); }
+          
+          if (data.status === "Innings Break") { 
+              setIsPlaying(false); 
+          } else if (data.status === "Completed") { 
+              setViewingScorecard(data); 
+              setAppState('scorecard'); 
+          }
+      } catch(err) { 
+          alert("Error accelerating match sequences."); 
+      }
   }
 
   async function changeLanguage(lang) {
       setSelectedLang(lang);
-      if (serverId) { fetch(`http://127.0.0.1:8000/matches/${serverId}/language`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ language: lang }) }).catch(() => {}); }
+      if (serverId) {
+          fetch(`http://127.0.0.1:8000/matches/${serverId}/language`, { 
+              method: 'PUT', 
+              headers: { 'Content-Type': 'application/json' }, 
+              body: JSON.stringify({ language: lang }) 
+          }).catch(() => {});
+      }
   }
 
   function loadTeamTemplate(dbTeamCode, teamNum) {
@@ -212,7 +290,13 @@ export default function App() {
       if (teamNum === 2 && dbTeamCode === selectedFranchise1) return alert("Oops! You already selected this team.");
       
       const roster = playerDatabase.filter(p => p.team === dbTeamCode).slice(0, 11).map(p => ({ ...p, isCaptain: false, allocated_overs: 0 }));
-      if (teamNum === 1) { setSelectedFranchise1(dbTeamCode); setTeam1(roster); } else { setSelectedFranchise2(dbTeamCode); setTeam2(roster); }
+      if (teamNum === 1) { 
+          setSelectedFranchise1(dbTeamCode); 
+          setTeam1(roster); 
+      } else { 
+          setSelectedFranchise2(dbTeamCode); 
+          setTeam2(roster); 
+      }
   }
 
   function addPlayerToTeam(player, teamNum) {
@@ -222,8 +306,14 @@ export default function App() {
   }
 
   function removePlayer(playerId, teamNum) {
-    if (teamNum === 1) { setTeam1(team1.filter(p => p.id !== playerId)); setSelectedFranchise1(''); }
-    if (teamNum === 2) { setTeam2(team2.filter(p => p.id !== playerId)); setSelectedFranchise2(''); }
+    if (teamNum === 1) { 
+        setTeam1(team1.filter(p => p.id !== playerId)); 
+        setSelectedFranchise1(''); 
+    }
+    if (teamNum === 2) { 
+        setTeam2(team2.filter(p => p.id !== playerId)); 
+        setSelectedFranchise2(''); 
+    }
   }
 
   function getFilteredPlayers(query) {
@@ -233,57 +323,93 @@ export default function App() {
 
   function handleBattingNumberChange(teamNum, currentIndex, newPosStr) {
       let newPos = parseInt(newPosStr) - 1;
-      if (isNaN(newPos) || newPos < 0) newPos = 0; if (newPos > 10) newPos = 10;
+      if (isNaN(newPos) || newPos < 0) newPos = 0; 
+      if (newPos > 10) newPos = 10;
+      
       const team = teamNum === 1 ? [...team1] : [...team2];
       const [movedPlayer] = team.splice(currentIndex, 1);
       team.splice(newPos, 0, movedPlayer); 
+      
       teamNum === 1 ? setTeam1(team) : setTeam2(team);
   }
 
   function movePlayerArrow(teamNum, idx, dir) {
       const team = teamNum === 1 ? [...team1] : [...team2];
-      if (dir === 'up' && idx > 0) { [team[idx - 1], team[idx]] = [team[idx], team[idx - 1]]; } 
-      else if (dir === 'down' && idx < team.length - 1) { [team[idx + 1], team[idx]] = [team[idx], team[idx + 1]]; }
+      if (dir === 'up' && idx > 0) {
+          [team[idx - 1], team[idx]] = [team[idx], team[idx - 1]];
+      } else if (dir === 'down' && idx < team.length - 1) {
+          [team[idx + 1], team[idx]] = [team[idx], team[idx + 1]];
+      }
       teamNum === 1 ? setTeam1(team) : setTeam2(team);
   }
 
   function autoAssignQuotas(teamArray, format) {
       try {
           if (!teamArray || !Array.isArray(teamArray)) return [];
-          const maxBalls = format === 'T10' ? 10 : 20; const maxPerB = format === 'T10' ? 2 : 4;
+          const maxBalls = format === 'T10' ? 10 : 20; 
+          const maxPerB = format === 'T10' ? 2 : 4;
+          
           let newTeam = teamArray.map(p => ({ ...p, allocated_overs: 0 }));
           let bowlers = newTeam.filter(p => p && p.role && (p.role.includes('Bowl') || p.role.includes('All')));
+          
           if (bowlers.length === 0) bowlers = newTeam; 
-          let allocated = 0; let failsafe = 0; 
+          
+          let allocated = 0; 
+          let failsafe = 0; 
+          
           while (allocated < maxBalls && failsafe < 500) {
-              failsafe++; let added = false;
+              failsafe++;
+              let added = false;
               for (let b of bowlers) { 
-                  if (b && b.allocated_overs < maxPerB && allocated < maxBalls) { b.allocated_overs++; allocated++; added = true; } 
+                  if (b && b.allocated_overs < maxPerB && allocated < maxBalls) { 
+                      b.allocated_overs++; 
+                      allocated++; 
+                      added = true;
+                  } 
               }
               if (!added) bowlers = newTeam; 
           }
           return newTeam;
-      } catch (err) { return teamArray || []; }
+      } catch (err) { 
+          return teamArray || []; 
+      }
   }
 
   function proceedToOvers() {
-      const reqOvers = matchFormat === 'T10' ? 10 : 20;
-      const t1Total = (team1 || []).reduce((sum, p) => sum + (p && p.allocated_overs ? p.allocated_overs : 0), 0);
-      const t2Total = (team2 || []).reduce((sum, p) => sum + (p && p.allocated_overs ? p.allocated_overs : 0), 0);
-      if (t1Total !== reqOvers) { setTeam1(autoAssignQuotas(team1, matchFormat)); }
-      if (t2Total !== reqOvers) { setTeam2(autoAssignQuotas(team2, matchFormat)); }
-      setAppState('bowlingQuotas');
+      try {
+          const reqOvers = matchFormat === 'T10' ? 10 : 20;
+          const t1Total = (team1 || []).reduce((sum, p) => sum + (p && p.allocated_overs ? p.allocated_overs : 0), 0);
+          const t2Total = (team2 || []).reduce((sum, p) => sum + (p && p.allocated_overs ? p.allocated_overs : 0), 0);
+          
+          if (t1Total !== reqOvers) {
+              setTeam1(autoAssignQuotas(team1, matchFormat));
+          }
+          if (t2Total !== reqOvers) {
+              setTeam2(autoAssignQuotas(team2, matchFormat));
+          }
+          setAppState('bowlingQuotas');
+      } catch (err) {
+          console.error(err);
+          setAppState('bowlingQuotas');
+      }
   }
 
   function updateBowlerQuota(teamNum, playerId, delta) {
-      const maxFormat = matchFormat === 'T10' ? 10 : 20; const maxPerB = matchFormat === 'T10' ? 2 : 4;
+      const maxFormat = matchFormat === 'T10' ? 10 : 20; 
+      const maxPerB = matchFormat === 'T10' ? 2 : 4;
       const team = teamNum === 1 ? [...team1] : [...team2];
+      
       const currentTotal = team.reduce((s, p) => s + (p.allocated_overs || 0), 0);
       const idx = team.findIndex(p => p.id === playerId);
+      
       if (idx === -1) return;
+
       let newVal = (team[idx].allocated_overs || 0) + delta;
-      if (newVal < 0) newVal = 0; if (newVal > maxPerB) newVal = maxPerB;
+      
+      if (newVal < 0) newVal = 0; 
+      if (newVal > maxPerB) newVal = maxPerB;
       if (delta > 0 && currentTotal >= maxFormat) return; 
+      
       team[idx].allocated_overs = newVal;
       teamNum === 1 ? setTeam1(team) : setTeam2(team);
   }
@@ -292,28 +418,51 @@ export default function App() {
       const req = matchFormat === 'T10' ? 10 : 20;
       const t1O = (team1 || []).reduce((s, p) => s + (p.allocated_overs || 0), 0);
       const t2O = (team2 || []).reduce((s, p) => s + (p.allocated_overs || 0), 0);
+      
       if (t1O !== req || t2O !== req) return alert(`Both team selections require exactly ${req} overs assigned.`);
       
       const genOrder = (teamArray) => {
           try {
               let pool = []; 
-              (teamArray || []).forEach(p => { if (p && p.allocated_overs) { for(let i=0; i < p.allocated_overs; i++) pool.push(p.name); } });
-              let order = []; let last = ""; let failsafe = 0;
+              (teamArray || []).forEach(p => { 
+                  if (p && p.allocated_overs) {
+                      for(let i=0; i < p.allocated_overs; i++) pool.push(p.name); 
+                  }
+              });
+              
+              let order = []; 
+              let last = ""; 
+              let failsafe = 0;
+              
               while (pool.length > 0 && failsafe < 500) { 
                   failsafe++;
                   let idx = pool.findIndex(n => n !== last); 
                   if (idx === -1) idx = 0; 
-                  if (pool[idx]) { order.push(pool[idx]); last = pool[idx]; pool.splice(idx, 1); } else { break; }
+                  
+                  if (pool[idx]) { 
+                      order.push(pool[idx]); 
+                      last = pool[idx]; 
+                      pool.splice(idx, 1); 
+                  } else { 
+                      break; 
+                  }
               }
               return order;
-          } catch(err) { return []; }
+          } catch(err) { 
+              return []; 
+          }
       };
-      setOrderT1(genOrder(team1)); setOrderT2(genOrder(team2)); setAppState('bowlingOrder');
+      
+      setOrderT1(genOrder(team1)); 
+      setOrderT2(genOrder(team2));
+      setAppState('bowlingOrder');
   }
 
   function initiateToss() {
       const call = Math.random() > 0.5 ? 'HEADS' : 'TAILS';
-      setOppCall(call); setTossPhase('call'); setAppState('toss');
+      setOppCall(call); 
+      setTossPhase('call'); 
+      setAppState('toss');
   }
 
   function handleUserFlip() {
@@ -321,40 +470,75 @@ export default function App() {
       setTimeout(() => {
           const resultFace = Math.random() > 0.5 ? 'HEADS' : 'TAILS';
           setCoinFace(resultFace);
-          if (resultFace === oppCall) { setTossWinnerTeam(team2Name); setMatchDecision(Math.random() > 0.5 ? 'Bat' : 'Bowl'); setTossPhase('oppWin'); } 
-          else { setTossWinnerTeam(team1Name); setTossPhase('userWin'); }
+          if (resultFace === oppCall) { 
+              setTossWinnerTeam(team2Name); 
+              setMatchDecision(Math.random() > 0.5 ? 'Bat' : 'Bowl'); 
+              setTossPhase('oppWin'); 
+          } else { 
+              setTossWinnerTeam(team1Name); 
+              setTossPhase('userWin'); 
+          }
       }, 2500);
   }
 
   async function startServerMatch() {
-    if (isStarting) return; setIsStarting(true);
-    setServerData(null); setCommentaryFeed([]); setPrevBalls(0);
+    if (isStarting) return; 
+    setIsStarting(true);
+    
+    setServerData(null);
+    setCommentaryFeed([]);
+    setPrevBalls(0);
+    
     try {
-      let bat = (team1 || []).map(p => ({...p, teamName: team1Name}));
-      let bowl = (team2 || []).map(p => ({...p, teamName: team2Name}));
-      let bN = team1Name; let bN2 = team2Name;
-      let s1 = orderT2 || []; let s2 = orderT1 || [];
+      let bat = team1 || []; 
+      let bowl = team2 || []; 
+      let batName = team1Name; 
+      let bowlName = team2Name;
+      let inn1Seq = orderT2 || []; 
+      let inn2Seq = orderT1 || [];
       
       if ((tossWinnerTeam === team1Name && matchDecision === 'Bowl') || (tossWinnerTeam === team2Name && matchDecision === 'Bat')) {
-          bat = (team2 || []).map(p => ({...p, teamName: team2Name}));
-          bowl = (team1 || []).map(p => ({...p, teamName: team1Name}));
-          bN = team2Name; bN2 = team1Name; s1 = orderT1 || []; s2 = orderT2 || [];
+          bat = team2; 
+          bowl = team1; 
+          batName = team2Name; 
+          bowlName = team1Name; 
+          inn1Seq = orderT1 || []; 
+          inn2Seq = orderT2 || [];
       }
       
       const res = await fetch('http://127.0.0.1:8000/matches/', { 
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: currentUser.id, format: matchFormat, batting_team: bat, bowling_team: bowl, batting_team_name: bN, bowling_team_name: bN2, inn1_bowling_seq: s1, inn2_bowling_seq: s2 })
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+            user_id: currentUser.id, 
+            format: matchFormat, 
+            batting_team: bat, 
+            bowling_team: bowl, 
+            batting_team_name: batName, 
+            bowling_team_name: bowlName, 
+            inn1_bowling_seq: inn1Seq, 
+            inn2_bowling_seq: inn2Seq 
+        })
       });
       
-      const data = await res.json(); setServerId(data.id);
-      await fetch(`http://127.0.0.1:8000/matches/${data.id}/language`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ language: selectedLang }) });
+      const data = await res.json(); 
+      setServerId(data.id);
+      
+      await fetch(`http://127.0.0.1:8000/matches/${data.id}/language`, { 
+          method: 'PUT', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ language: selectedLang }) 
+      });
 
       const initScoreRes = await fetch(`http://127.0.0.1:8000/matches/${data.id}/score`);
       const initScoreData = await initScoreRes.json();
       setServerData(initScoreData);
       
-      setIsPlaying(true); setAppState('match'); 
-    } catch (err) { alert("Server connection missing."); }
+      setIsPlaying(true); 
+      setAppState('match'); 
+    } catch (err) { 
+        alert("Server connection missing. Ensure Python is running!"); 
+    }
     setIsStarting(false);
   }
 
@@ -363,7 +547,9 @@ export default function App() {
           if (!teamArray || !Array.isArray(teamArray)) return "Captain";
           const player = teamArray.find(p => p && p.id && String(p.id) === String(capId));
           return player ? player.name : "Captain";
-      } catch (err) { return "Captain"; }
+      } catch (err) {
+          return "Captain";
+      }
   }
 
   function getWinnerText() {
@@ -388,43 +574,67 @@ export default function App() {
       return mvp;
   };
 
-  const matchMVP = computeMVP();
+  // --- SCORECARD MVP CALCULATOR ---
   function computeMVP() {
       if (!viewingScorecard) return null;
       let pool = [];
       const winner = viewingScorecard.match_winner;
 
-      if (Array.isArray(viewingScorecard.batting_team)) { pool.push(...viewingScorecard.batting_team.map(p => ({...p, teamName: viewingScorecard.batting_team_name}))); }
-      if (Array.isArray(viewingScorecard.bowling_team)) { pool.push(...viewingScorecard.bowling_team.map(p => ({...p, teamName: viewingScorecard.bowling_team_name}))); }
+      if (Array.isArray(viewingScorecard.batting_team)) {
+          pool.push(...viewingScorecard.batting_team.map(p => ({...p, teamName: viewingScorecard.batting_team_name})));
+      }
+      if (Array.isArray(viewingScorecard.bowling_team)) {
+          pool.push(...viewingScorecard.bowling_team.map(p => ({...p, teamName: viewingScorecard.bowling_team_name})));
+      }
 
-      if (winner && winner !== "Match Tied") { pool = pool.filter(p => p.teamName === winner); }
+      if (winner && winner !== "Match Tied") {
+          pool = pool.filter(p => p.teamName === winner);
+      }
       
-      let topVal = -1; let mvpObject = null;
+      let topVal = -1; 
+      let mvpObject = null;
+      
       pool.forEach(p => {
           if (p) {
               let score = (p.runs || 0) + ((p.fours || 0) * 1) + ((p.sixes || 0) * 2) + ((p.wickets || 0) * 25);
               if (score > topVal) { 
                   topVal = score; 
-                  mvpObject = { name: p.name, pts: score, runs: p.runs || 0, wkts: p.wickets || 0, balls: p.balls || 0, teamName: p.teamName }; 
+                  mvpObject = { 
+                      name: p.name, 
+                      pts: score, 
+                      runs: p.runs || 0, 
+                      wkts: p.wickets || 0, 
+                      balls: p.balls || 0,
+                      teamName: p.teamName 
+                  }; 
               }
           }
       });
       return mvpObject;
   }
 
-  // --- SAFE UI VARIABLES ---
-  const reqOvers = matchFormat === 'T10' ? 10 : 20; const maxPerB = matchFormat === 'T10' ? 2 : 4;
+  const matchMVP = computeMVP();
+
+  const reqOvers = matchFormat === 'T10' ? 10 : 20; 
+  const maxPerB = matchFormat === 'T10' ? 2 : 4;
+  
   const t1OversTotal = (team1 || []).reduce((sum, p) => sum + (p && p.allocated_overs ? p.allocated_overs : 0), 0);
   const t2OversTotal = (team2 || []).reduce((sum, p) => sum + (p && p.allocated_overs ? p.allocated_overs : 0), 0);
   
-  const activeScore = serverData?.score || 0; const activeWickets = serverData?.wickets || 0; const activeBalls = serverData?.balls || 0;
-  const overs = Math.floor(activeBalls / 6); const legalBalls = activeBalls % 6; const thisOver = serverData?.recent_overs || [];
+  const activeScore = serverData?.score || 0; 
+  const activeWickets = serverData?.wickets || 0; 
+  const activeBalls = serverData?.balls || 0;
+  
+  const overs = Math.floor(activeBalls / 6); 
+  const legalBalls = activeBalls % 6; 
+  const thisOver = serverData?.recent_overs || [];
   
   const strikerData = serverData?.batting_team?.find(p => p && p.name === serverData?.striker_name) || { name: "Waiting...", runs: 0, balls: 0, fours: 0, sixes: 0 };
   const nonStrikerData = serverData?.batting_team?.find(p => p && p.name === serverData?.non_striker_name) || null;
   const bowlerData = serverData?.bowling_team?.find(p => p && p.name === serverData?.bowler_name) || { name: "Waiting...", wickets: 0, runs_conceded: 0, balls_bowled: 0 };
-  const bOvers = Math.floor((bowlerData?.balls_bowled || 0) / 6); const bRem = (bowlerData?.balls_bowled || 0) % 6;
-
+  
+  const bOvers = Math.floor((bowlerData?.balls_bowled || 0) / 6); 
+  const bRem = (bowlerData?.balls_bowled || 0) % 6;
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden pb-20">
       <style>{`
@@ -590,6 +800,7 @@ export default function App() {
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              
               {/* TEAM 1 DRAFT BOARD */}
               <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl">
                 <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-800">
@@ -600,6 +811,7 @@ export default function App() {
                     </div>
                 </div>
 
+                {/* Option 1: Custom Player Search */}
                 <div className="mb-4 bg-slate-900 border border-slate-700 p-3 rounded">
                     <label className="block text-slate-400 text-[10px] font-bold uppercase mb-2 tracking-widest">1. Add Specific Players</label>
                     <div className="relative">
@@ -620,6 +832,7 @@ export default function App() {
                     </div>
                 </div>
 
+                {/* Option 2: Full Franchise Fill */}
                 <div className="mb-4 bg-slate-900 border border-slate-700 p-3 rounded">
                     <label className="block text-slate-400 text-[10px] font-bold uppercase mb-2 tracking-widest">2. Or Auto-Fill Franchise Squad</label>
                     <select value={selectedFranchise1} onChange={(e) => loadTeamTemplate(e.target.value, 1)} className="w-full bg-slate-950 border border-slate-800 p-2 rounded text-xs font-bold outline-none text-white focus:border-emerald-500">
@@ -651,6 +864,7 @@ export default function App() {
                     </div>
                 </div>
 
+                {/* Option 1: Custom Player Search */}
                 <div className="mb-4 bg-slate-900 border border-slate-700 p-3 rounded">
                     <label className="block text-slate-400 text-[10px] font-bold uppercase mb-2 tracking-widest">1. Add Specific Players</label>
                     <div className="relative">
@@ -671,6 +885,7 @@ export default function App() {
                     </div>
                 </div>
 
+                {/* Option 2: Full Franchise Fill */}
                 <div className="mb-4 bg-slate-900 border border-slate-700 p-3 rounded">
                     <label className="block text-slate-400 text-[10px] font-bold uppercase mb-2 tracking-widest">2. Or Auto-Fill Franchise Squad</label>
                     <select value={selectedFranchise2} onChange={(e) => loadTeamTemplate(e.target.value, 2)} className="w-full bg-slate-950 border border-slate-800 p-2 rounded text-xs font-bold outline-none text-white focus:border-cyan-500">
@@ -691,6 +906,7 @@ export default function App() {
                   })}
                 </div>
               </div>
+
             </div>
           </div>
         )}
@@ -750,6 +966,7 @@ export default function App() {
             </p>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Team 1 Batting */}
                 <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl shadow-inner">
                     <h3 className="font-black text-emerald-500 uppercase tracking-widest mb-4">{team1Name} Lineup</h3>
                     <div className="space-y-2">
@@ -774,6 +991,7 @@ export default function App() {
                     </div>
                 </div>
 
+                {/* Team 2 Batting */}
                 <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl shadow-inner">
                     <h3 className="font-black text-cyan-500 uppercase tracking-widest mb-4">{team2Name} Lineup</h3>
                     <div className="space-y-2">
@@ -815,6 +1033,7 @@ export default function App() {
             </p>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Team 1 Bowling Overs */}
                 <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl shadow-inner">
                     <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-3">
                         <h3 className="font-black text-emerald-500 uppercase tracking-widest">{team1Name}</h3>
@@ -839,6 +1058,7 @@ export default function App() {
                     </div>
                 </div>
 
+                {/* Team 2 Bowling Overs */}
                 <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl shadow-inner">
                     <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-3">
                         <h3 className="font-black text-cyan-500 uppercase tracking-widest">{team2Name}</h3>
@@ -880,6 +1100,7 @@ export default function App() {
             </p>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Team 1 Bowling Sequence */}
                 <div className="bg-slate-950 p-5 border border-slate-800 rounded-xl shadow-inner">
                     <h3 className="font-black text-emerald-500 uppercase mb-4 tracking-widest border-b border-slate-800 pb-2">{team1Name} Order</h3>
                     <div className="space-y-3 h-[350px] overflow-y-auto pr-2 custom-scrollbar">
@@ -897,6 +1118,7 @@ export default function App() {
                     </div>
                 </div>
 
+                {/* Team 2 Bowling Sequence */}
                 <div className="bg-slate-950 p-5 border border-slate-800 rounded-xl shadow-inner">
                     <h3 className="font-black text-cyan-500 uppercase mb-4 tracking-widest border-b border-slate-800 pb-2">{team2Name} Order</h3>
                     <div className="space-y-3 h-[350px] overflow-y-auto pr-2 custom-scrollbar">
@@ -1396,3 +1618,5 @@ export default function App() {
     </div>
   );
 }
+
+export default App;
