@@ -11,6 +11,7 @@ const franchiseTeams = [
 ];
 
 function App() {
+  // --- 1. STATE DEFINITIONS ---
   const [appState, setAppState] = useState('auth'); 
   const [currentUser, setCurrentUser] = useState(null);
   
@@ -21,7 +22,6 @@ function App() {
   const [matchHistory, setMatchHistory] = useState([]);
   const [viewingScorecard, setViewingScorecard] = useState(null);
 
-  // Match Config
   const [matchFormat, setMatchFormat] = useState('T20'); 
   const [team1Name, setTeam1Name] = useState('My Team'); 
   const [team2Name, setTeam2Name] = useState('Opponent Team');
@@ -38,19 +38,18 @@ function App() {
   const [orderT1, setOrderT1] = useState([]); 
   const [orderT2, setOrderT2] = useState([]);
 
-  // Toss State
   const [tossPhase, setTossPhase] = useState('call'); 
   const [coinFace, setCoinFace] = useState('?');
   const [tossWinnerTeam, setTossWinnerTeam] = useState('');
   const [matchDecision, setMatchDecision] = useState(''); 
   const [oppCall, setOppCall] = useState('');
 
-  // Live Center
   const [serverId, setServerId] = useState(null);
   const [serverData, setServerData] = useState(null);
   const [prevBalls, setPrevBalls] = useState(0);
   const [commentaryFeed, setCommentaryFeed] = useState([]);
   const [isStarting, setIsStarting] = useState(false);
+  const [isStartingInn2, setIsStartingInn2] = useState(false);
   
   const [selectedLang, setSelectedLang] = useState('English');
   const [isPlaying, setIsPlaying] = useState(true);
@@ -61,7 +60,7 @@ function App() {
   const wicketSound = useRef(null);
   const cheerSound = useRef(null);
 
-  // --- AUDIO INITIALIZATION ---
+  // --- 2. AUDIO & SCROLL HOOKS ---
   useEffect(() => {
       try {
           if (typeof window !== 'undefined') {
@@ -84,7 +83,7 @@ function App() {
       commentaryEndRef.current?.scrollIntoView({ behavior: "smooth" }); 
   }, [commentaryFeed]);
 
-  // --- SAFE LOCAL STORAGE ---
+  // --- 3. STORAGE & NAVIGATION ---
   useEffect(() => {
     try {
         const savedUser = localStorage.getItem('cricverse_user');
@@ -99,7 +98,58 @@ function App() {
     }
   }, []);
 
-  // --- STABLE LIVE MATCH TICKER (WITH FIRST BALL DELAY) ---
+  const goToDashboard = () => {
+      if (currentUser) {
+          fetchHistory(currentUser.id);
+          setAppState('dashboard');
+      }
+  };
+
+  async function fetchHistory(userId) {
+    try { 
+        const res = await fetch(`http://127.0.0.1:8000/users/${userId}/matches`); 
+        const data = await res.json();
+        if (Array.isArray(data)) { 
+            setMatchHistory(data); 
+        } else { 
+            setMatchHistory([]); 
+        }
+    } catch (err) { 
+        setMatchHistory([]); 
+    }
+  }
+
+  async function handleAuth(endpoint) {
+    setAuthError('');
+    if (!formData.username || !formData.password) return setAuthError("Please fill in all fields.");
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/${endpoint}`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify(formData) 
+      });
+      const data = await res.json();
+      
+      if (data.error) return setAuthError(data.error);
+      
+      localStorage.setItem('cricverse_user', JSON.stringify(data));
+      setCurrentUser(data); 
+      fetchHistory(data.id); 
+      setAppState('dashboard');
+    } catch (err) { 
+        setAuthError("Server Offline. Ensure Python is running."); 
+    }
+  }
+
+  function handleLogout() {
+      localStorage.removeItem('cricverse_user'); 
+      setCurrentUser(null); 
+      setAppState('auth'); 
+      setAuthMode('login');
+      setFormData({ name: '', username: '', email: '', mobile: '', password: '', referral: '', agreeTerms: false });
+  }
+
+  // --- 4. LIVE MATCH TIMERS & POLLING ---
   useEffect(() => {
     if (appState !== 'match' || !serverId) return;
 
@@ -107,7 +157,6 @@ function App() {
     const playNext = async () => {
         if (!isPlaying) return;
         
-        // Wait for audio to finish speaking
         if (isAudioEnabled && window.speechSynthesis?.speaking) {
             timer = setTimeout(playNext, 1000);
             return;
@@ -130,7 +179,6 @@ function App() {
                 setAppState('scorecard'); 
             }
             else { 
-                // Delay 5 seconds if it's ball 0, otherwise 4.5 seconds
                 const delay = data.balls === 0 ? 5000 : 4500;
                 timer = setTimeout(playNext, delay); 
             }
@@ -139,13 +187,11 @@ function App() {
         }
     };
 
-    // Initial 5-second delay before the very first ball of the match
     timer = setTimeout(playNext, 5000);
 
     return () => clearTimeout(timer);
   }, [appState, serverId, isPlaying, isAudioEnabled]);
 
-  // --- COMMENTARY RECEIVER ---
   useEffect(() => {
     if (serverData && serverData.balls > prevBalls) {
       setPrevBalls(serverData.balls);
@@ -186,51 +232,7 @@ function App() {
     }
   }, [serverData, prevBalls, isAudioEnabled]);
 
-  // --- CORE FUNCTIONS ---
-  async function handleAuth(endpoint) {
-    setAuthError('');
-    if (!formData.username || !formData.password) return setAuthError("Please fill in all fields.");
-    try {
-      const res = await fetch(`http://127.0.0.1:8000/${endpoint}`, { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify(formData) 
-      });
-      const data = await res.json();
-      
-      if (data.error) return setAuthError(data.error);
-      
-      localStorage.setItem('cricverse_user', JSON.stringify(data));
-      setCurrentUser(data); 
-      fetchHistory(data.id); 
-      setAppState('dashboard');
-    } catch (err) { 
-        setAuthError("Server Offline. Ensure Python is running."); 
-    }
-  }
-
-  function handleLogout() {
-      localStorage.removeItem('cricverse_user'); 
-      setCurrentUser(null); 
-      setAppState('auth'); 
-      setAuthMode('login');
-      setFormData({ name: '', username: '', email: '', mobile: '', password: '', referral: '', agreeTerms: false });
-  }
-
-  async function fetchHistory(userId) {
-    try { 
-        const res = await fetch(`http://127.0.0.1:8000/users/${userId}/matches`); 
-        const data = await res.json();
-        if (Array.isArray(data)) { 
-            setMatchHistory(data); 
-        } else { 
-            setMatchHistory([]); 
-        }
-    } catch (err) { 
-        setMatchHistory([]); 
-    }
-  }
-
+  // --- 5. MATCH ACTIONS ---
   async function handleMatchClick(match) {
     try {
         const res = await fetch(`http://127.0.0.1:8000/matches/${match.id}/score`);
@@ -282,7 +284,7 @@ function App() {
       }
   }
 
-  // --- SQUAD BUILDING ---
+  // --- 6. SQUAD BUILDING ---
   function loadTeamTemplate(dbTeamCode, teamNum) {
       if (!dbTeamCode) {
           if (teamNum === 1) { setSelectedFranchise1(''); setTeam1([]); }
@@ -346,7 +348,7 @@ function App() {
       teamNum === 1 ? setTeam1(team) : setTeam2(team);
   }
 
-  // --- FAILSAFE BOWLING QUOTAS ---
+  // --- 7. BOWLING QUOTAS ---
   function autoAssignQuotas(teamArray, format) {
       try {
           if (!teamArray || !Array.isArray(teamArray)) return [];
@@ -462,7 +464,7 @@ function App() {
       setAppState('bowlingOrder');
   }
 
-  // --- TOSS & MATCH INITIATION ---
+  // --- 8. TOSS & MATCH INITIATION ---
   function initiateToss() {
       const call = Math.random() > 0.5 ? 'HEADS' : 'TAILS';
       setOppCall(call); 
@@ -490,7 +492,6 @@ function App() {
     if (isStarting) return; 
     setIsStarting(true);
     
-    // Clear out any old game data before sending to server
     setServerData(null);
     setCommentaryFeed([]);
     setPrevBalls(0);
@@ -535,6 +536,10 @@ function App() {
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ language: selectedLang }) 
       });
+
+      const initScoreRes = await fetch(`http://127.0.0.1:8000/matches/${data.id}/score`);
+      const initScoreData = await initScoreRes.json();
+      setServerData(initScoreData);
       
       setIsPlaying(true); 
       setAppState('match'); 
@@ -544,7 +549,7 @@ function App() {
     setIsStarting(false);
   }
 
-  // --- UNBREAKABLE CAPTAIN LOOKUP ---
+  // --- 9. DISPLAY HELPERS ---
   function getCapName(teamArray, capId) {
       try {
           if (!teamArray || !Array.isArray(teamArray)) return "Captain";
@@ -561,7 +566,6 @@ function App() {
       return `${viewingScorecard.match_winner} Won the Match!`;
   }
 
-  // --- PROFESSIONAL MVP CALCULATOR (Winning Team Priority) ---
   function computeMVP() {
       if (!viewingScorecard) return null;
       let pool = [];
@@ -574,7 +578,6 @@ function App() {
           pool.push(...viewingScorecard.bowling_team.map(p => ({...p, teamName: viewingScorecard.bowling_team_name})));
       }
 
-      // Filter for players on the winning team only
       if (winner && winner !== "Match Tied") {
           pool = pool.filter(p => p.teamName === winner);
       }
@@ -600,7 +603,6 @@ function App() {
       });
       return mvpObject;
   }
-
   const matchMVP = computeMVP();
 
   // --- SAFE UI VARIABLES ---
@@ -639,7 +641,7 @@ function App() {
 
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-40 shadow-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
-          <h1 className="text-xl md:text-2xl font-black tracking-tight uppercase flex items-center gap-2 cursor-pointer text-white" onClick={() => currentUser && setAppState('dashboard')}>
+          <h1 className="text-xl md:text-2xl font-black tracking-tight uppercase flex items-center gap-2 cursor-pointer text-white" onClick={goToDashboard}>
             <div className="w-6 h-6 bg-emerald-500 rounded flex items-center justify-center text-black text-xs">CP</div>
             CRICVERSE <span className="text-emerald-500">PRO</span>
           </h1>
@@ -652,7 +654,7 @@ function App() {
 
       <main className="max-w-6xl mx-auto p-4 lg:p-8">
         
-        {/* --- 1. FULL AUTH SCREEN RESTORED --- */}
+        {/* --- 1. FULL AUTH SCREEN --- */}
         {appState === 'auth' && (
           <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-2xl mt-10">
             <h2 className="text-xl font-bold mb-6 text-white uppercase tracking-widest border-b border-slate-800 pb-4 text-center">{authMode === 'login' ? 'Login' : 'Create Account'}</h2>
@@ -728,7 +730,7 @@ function App() {
           <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-xl mt-10">
             <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
                <h2 className="text-xl font-bold text-white uppercase tracking-widest">1. Match Setup</h2>
-               <button onClick={() => setAppState('dashboard')} className="text-slate-500 text-xs font-bold hover:text-white">← Cancel</button>
+               <button onClick={goToDashboard} className="text-slate-500 text-xs font-bold hover:text-white">← Cancel</button>
             </div>
             
             <div className="space-y-6 mb-8">
@@ -755,7 +757,7 @@ function App() {
           </div>
         )}
 
-        {/* --- WIZARD STEP 2: DRAFT (CUSTOM SEARCH RESTORED VISIBLY) --- */}
+        {/* --- WIZARD STEP 2: DRAFT --- */}
         {appState === 'draft' && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-xl">
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
@@ -779,7 +781,6 @@ function App() {
                     </div>
                 </div>
 
-                {/* Option 1: Custom Player Search */}
                 <div className="mb-4 bg-slate-900 border border-slate-700 p-3 rounded">
                     <label className="block text-slate-400 text-[10px] font-bold uppercase mb-2 tracking-widest">1. Add Specific Players</label>
                     <div className="relative">
@@ -800,7 +801,6 @@ function App() {
                     </div>
                 </div>
 
-                {/* Option 2: Full Franchise Fill */}
                 <div className="mb-4 bg-slate-900 border border-slate-700 p-3 rounded">
                     <label className="block text-slate-400 text-[10px] font-bold uppercase mb-2 tracking-widest">2. Or Auto-Fill Franchise Squad</label>
                     <select value={selectedFranchise1} onChange={(e) => loadTeamTemplate(e.target.value, 1)} className="w-full bg-slate-950 border border-slate-800 p-2 rounded text-xs font-bold outline-none text-white focus:border-emerald-500">
@@ -832,7 +832,6 @@ function App() {
                     </div>
                 </div>
 
-                {/* Option 1: Custom Player Search */}
                 <div className="mb-4 bg-slate-900 border border-slate-700 p-3 rounded">
                     <label className="block text-slate-400 text-[10px] font-bold uppercase mb-2 tracking-widest">1. Add Specific Players</label>
                     <div className="relative">
@@ -853,7 +852,6 @@ function App() {
                     </div>
                 </div>
 
-                {/* Option 2: Full Franchise Fill */}
                 <div className="mb-4 bg-slate-900 border border-slate-700 p-3 rounded">
                     <label className="block text-slate-400 text-[10px] font-bold uppercase mb-2 tracking-widest">2. Or Auto-Fill Franchise Squad</label>
                     <select value={selectedFranchise2} onChange={(e) => loadTeamTemplate(e.target.value, 2)} className="w-full bg-slate-950 border border-slate-800 p-2 rounded text-xs font-bold outline-none text-white focus:border-cyan-500">
@@ -1202,7 +1200,7 @@ function App() {
                     <div className="text-2xl font-black text-white mb-2">{tossWinnerTeam} won the toss</div>
                     <div className="text-slate-400 text-sm font-bold uppercase tracking-widest mb-10">and elected to <span className="text-emerald-400">{matchDecision}</span> first.</div>
                     <button disabled={isStarting} onClick={startServerMatch} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-12 py-5 rounded-lg w-full text-sm uppercase tracking-widest transition-all shadow-[0_0_30px_rgba(16,185,129,0.3)]">
-                      {isStarting ? "Loading Match Data..." : "Start Match"}
+                      {isStarting ? "Players warming up..." : "Start Match"}
                     </button>
                 </div>
             )}
@@ -1215,8 +1213,8 @@ function App() {
             {!serverData ? (
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center max-w-md mx-auto mt-10 shadow-2xl">
                     <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
-                    <h3 className="text-xl font-black text-white uppercase tracking-widest">Loading Match...</h3>
-                    <p className="text-xs text-slate-500 font-mono mt-2 uppercase">Preparing game data</p>
+                    <h3 className="text-xl font-black text-white uppercase tracking-widest">Players warming up...</h3>
+                    <p className="text-xs text-slate-500 font-mono mt-2 uppercase">Taking positions on the field</p>
                 </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in relative">
@@ -1233,14 +1231,20 @@ function App() {
                                 <p className="text-[10px] text-slate-600 uppercase tracking-widest mt-3 font-bold">From {serverData?.max_balls / 6} Overs</p>
                             </div>
                             
-                            {/* PREVBALLS RESET HERE FIXES 2ND INNINGS AUDIO */}
-                            <button onClick={() => { 
+                            <button disabled={isStartingInn2} onClick={async () => { 
+                                setIsStartingInn2(true);
                                 setCommentaryFeed([]); 
                                 setPrevBalls(0);
-                                fetch(`http://127.0.0.1:8000/matches/${serverId}/start-inn2`, { method: 'POST' }); 
+                                await fetch(`http://127.0.0.1:8000/matches/${serverId}/start-inn2`, { method: 'POST' }); 
+                                
+                                const initScoreRes = await fetch(`http://127.0.0.1:8000/matches/${serverId}/score`);
+                                const initScoreData = await initScoreRes.json();
+                                setServerData(initScoreData);
+
                                 setIsPlaying(true); 
-                            }} className="bg-emerald-500 text-black px-12 py-5 font-black uppercase tracking-widest text-sm rounded-lg shadow-[0_0_30px_rgba(16,185,129,0.3)] hover:bg-emerald-400 transition-all w-full">
-                                Start 2nd Innings
+                                setIsStartingInn2(false);
+                            }} className="bg-emerald-500 text-black px-12 py-5 font-black uppercase tracking-widest text-sm rounded-lg shadow-[0_0_30px_rgba(16,185,129,0.3)] hover:bg-emerald-400 transition-all w-full disabled:opacity-50">
+                                {isStartingInn2 ? "Players warming up..." : "Start 2nd Innings"}
                             </button>
                         </div>
                     </div>
@@ -1398,7 +1402,7 @@ function App() {
           <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 p-10 rounded-2xl shadow-2xl mt-10 animate-fade-in">
              <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-6">
                  <h2 className="text-2xl font-black uppercase tracking-widest text-white">Match Result</h2>
-                 <button onClick={() => setAppState('dashboard')} className="text-emerald-500 text-xs font-bold uppercase tracking-widest hover:underline bg-emerald-500/10 px-4 py-2 rounded transition-colors">← Dashboard</button>
+                 <button onClick={goToDashboard} className="text-emerald-500 text-xs font-bold uppercase tracking-widest hover:underline bg-emerald-500/10 px-4 py-2 rounded transition-colors">← Dashboard</button>
              </div>
 
              <div className="text-center mb-10 bg-slate-950 p-8 rounded-xl border border-slate-800 shadow-inner">
@@ -1580,4 +1584,5 @@ function App() {
     </div>
   );
 }
+
 export default App;
