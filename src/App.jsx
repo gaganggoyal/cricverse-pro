@@ -531,10 +531,10 @@ function App() {
           inn2Seq = orderT2 || [];
       }
       
-      const res = await fetch('${API_BASE}/matches/', { 
+      const res = await fetch(`${API_BASE}/matches/`, { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
             user_id: currentUser.id, 
             format: matchFormat, 
             batting_team: bat, 
