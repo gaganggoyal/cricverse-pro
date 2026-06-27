@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { playerDatabase } from './players';
 
 // If deployed, use the live server. If on your computer, use localhost.
-const API_BASE = import.meta.env.VITE_API_URL || 'https://your-future-backend-url.com';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://cricinfo-backend.onrender.com/';
 
 const franchiseTeams = [
     { name: 'Mumbai Indians', code: 'MI' },
