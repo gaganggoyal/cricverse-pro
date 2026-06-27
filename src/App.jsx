@@ -144,13 +144,16 @@ function App() {
     return () => clearTimeout(timer);
   }, [appState, serverId, isPlaying, isAudioEnabled]);
 
+  // --- PASTE THIS NEW AI COMMENTARY BLOCK HERE ---
   useEffect(() => {
     if (serverData && serverData.balls > prevBalls) {
       setPrevBalls(serverData.balls);
       const d = serverData.last_delivery;
+      
       if (d && d.speed) {
         const aiText = d.commentary || "Awaiting commentary...";
         
+        // Update the visual feed
         setCommentaryFeed(prev => [
             ...prev, 
             { 
@@ -163,6 +166,7 @@ function App() {
         ]);
         
         if (isAudioEnabled) {
+            // Play stadium sound effects
             if (d.is_wicket) {
                 safePlayAudio(wicketSound);
             } else if (d.result === 4 || d.result === 6) { 
@@ -172,14 +176,29 @@ function App() {
                 safePlayAudio(batSound);
             }
 
-            if (window.speechSynthesis) {
-                window.speechSynthesis.cancel(); 
-                const cleanText = aiText.replace(/[.,!?"]/g, ''); 
-                const utterance = new SpeechSynthesisUtterance(cleanText);
-                utterance.lang = serverData.language === 'English' ? 'en-IN' : 'hi-IN';
-                utterance.rate = 1.0;
-                window.speechSynthesis.speak(utterance);
-            }
+            // Fetch Premium AI Voice from Backend
+            const fetchAICommentary = async () => {
+                try {
+                    const cleanText = aiText.replace(/[.,!?"]/g, '');
+                    const res = await fetch('http://127.0.0.1:8000/tts', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: cleanText, language: serverData.language })
+                    });
+                    
+                    const ttsData = await res.json();
+                    
+                    // Decode and play the MP3 instantly
+                    if (ttsData.audio_base64) {
+                        const audio = new Audio("data:audio/mp3;base64," + ttsData.audio_base64);
+                        audio.play().catch(() => console.log("Audio playback blocked by browser."));
+                    }
+                } catch (e) {
+                    console.error("AI TTS Request Failed", e);
+                }
+            };
+            
+            fetchAICommentary();
         }
       }
     }
