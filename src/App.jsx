@@ -144,7 +144,7 @@ function App() {
     return () => clearTimeout(timer);
   }, [appState, serverId, isPlaying, isAudioEnabled]);
 
-  // --- PASTE THIS NEW AI COMMENTARY BLOCK HERE ---
+// --- AI COMMENTARY RECEIVER (FIXED BROADCAST EDITION) ---
   useEffect(() => {
     if (serverData && serverData.balls > prevBalls) {
       setPrevBalls(serverData.balls);
@@ -168,11 +168,18 @@ function App() {
         if (isAudioEnabled) {
             // Play stadium sound effects
             if (d.is_wicket) {
+                wicketSound.current.currentTime = 0; 
                 safePlayAudio(wicketSound);
             } else if (d.result === 4 || d.result === 6) { 
+                batSound.current.currentTime = 0;
                 safePlayAudio(batSound); 
-                setTimeout(() => safePlayAudio(cheerSound), 400); 
+                setTimeout(() => {
+                    cheerSound.current.currentTime = 0;
+                    cheerSound.current.volume = 0.8; 
+                    safePlayAudio(cheerSound);
+                }, 300); 
             } else if (d.result > 0) {
+                batSound.current.currentTime = 0;
                 safePlayAudio(batSound);
             }
 
@@ -191,6 +198,19 @@ function App() {
                     // Decode and play the MP3 instantly
                     if (ttsData.audio_base64) {
                         const audio = new Audio("data:audio/mp3;base64," + ttsData.audio_base64);
+                        
+                        // --- 🌟 THE FIXED ENERGY HACK 🌟 ---
+                        // 1. Modest speed boost (15% instead of 25%) for urgency
+                        audio.playbackRate = 1.15; 
+                        
+                        // 2. CRITICAL FIX: Keep pitch preservation ON so he stays an adult!
+                        if ('preservesPitch' in audio) {
+                            audio.preservesPitch = true;
+                        }
+                        
+                        audio.volume = 1.0; 
+                        // -----------------------------
+                        
                         audio.play().catch(() => console.log("Audio playback blocked by browser."));
                     }
                 } catch (e) {
@@ -203,6 +223,7 @@ function App() {
       }
     }
   }, [serverData, prevBalls, isAudioEnabled]);
+
 
   async function handleAuth(endpoint) {
     setAuthError('');
