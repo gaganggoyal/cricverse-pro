@@ -75,4 +75,19 @@ export const playerDatabase = [
   { id: 208, name: "Shaheen Afridi", role: "Bowler", team: "PAK", batRating: 35, bowlRating: 91, style: "Pace" },
   { id: 209, name: "Kane Williamson", role: "Batter", team: "NZ", batRating: 93, bowlRating: 15, style: "Anchor" },
   { id: 210, name: "Rashid Khan", role: "All-Rounder", team: "AFG", batRating: 75, bowlRating: 96, style: "Spin" },
+
+  // --- RAJASTHAN ROYALS (RR) SQUAD ---
+  { id: 401, name: "Sanju Samson", role: "Wicketkeeper", team: "RR", batRating: 88, bowlRating: 10 },
+  { id: 402, name: "Yashasvi Jaiswal", role: "Batsman", team: "RR", batRating: 89, bowlRating: 15 },
+  { id: 403, name: "Jos Buttler", role: "Batsman", team: "RR", batRating: 87, bowlRating: 10 },
+  { id: 404, name: "Riyan Parag", role: "All-Rounder", team: "RR", batRating: 85, bowlRating: 65 },
+  { id: 405, name: "Dhruv Jurel", role: "Wicketkeeper", team: "RR", batRating: 82, bowlRating: 10 },
+  { id: 406, name: "Shimron Hetmyer", role: "Batsman", team: "RR", batRating: 84, bowlRating: 10 },
+  { id: 407, name: "Rovman Powell", role: "All-Rounder", team: "RR", batRating: 81, bowlRating: 50 },
+  { id: 408, name: "Ravichandran Ashwin", role: "All-Rounder", team: "RR", batRating: 65, bowlRating: 88 },
+  { id: 409, name: "Trent Boult", role: "Bowler", team: "RR", batRating: 30, bowlRating: 92 },
+  { id: 410, name: "Yuzvendra Chahal", role: "Bowler", team: "RR", batRating: 15, bowlRating: 90 },
+  { id: 411, name: "Sandeep Sharma", role: "Bowler", team: "RR", batRating: 25, bowlRating: 85 },
+  { id: 412, name: "Avesh Khan", role: "Bowler", team: "RR", batRating: 20, bowlRating: 82 },
+  { id: 413, name: "Vaibhav Suryavanshi", role: "Batsman", team: "RR", batRating: 78, bowlRating: 15 },
 ];
