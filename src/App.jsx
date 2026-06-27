@@ -106,7 +106,7 @@ function App() {
     }
   }, []);
 
-  // --- STABLE LIVE MATCH TICKER ---
+  // --- STABLE LIVE MATCH TICKER (PACING SLOWED DOWN) ---
   useEffect(() => {
     if (appState !== 'match' || !serverId) return;
 
@@ -137,15 +137,15 @@ function App() {
                 setAppState('scorecard'); 
             }
             else { 
-                // Wait 4 seconds between balls so the pacing is comfortable
-                timer = setTimeout(playNext, 4000); 
+                // Increased delay for a much more comfortable, slower pacing
+                timer = setTimeout(playNext, 5500); 
             }
         } catch (err) {
             console.error("Waiting for backend...");
         }
     };
 
-    timer = setTimeout(playNext, 3000);
+    timer = setTimeout(playNext, 5500);
     return () => clearTimeout(timer);
   }, [appState, serverId, isPlaying, isAudioEnabled]);
 
@@ -247,6 +247,8 @@ function App() {
             setViewingScorecard(data); 
             setAppState('scorecard'); 
         } else { 
+            // WIPE frontend memory counter so we don't mute an in-progress game
+            setPrevBalls(data.balls);
             setIsPlaying(false); 
             setAppState('match'); 
         }
@@ -374,7 +376,7 @@ function App() {
                       added = true;
                   } 
               }
-              if (!added) bowlers = newTeam; // Open up to all players if bowlers are maxed
+              if (!added) bowlers = newTeam; 
           }
           return newTeam;
       } catch (err) { 
@@ -396,7 +398,6 @@ function App() {
           }
           setAppState('bowlingQuotas');
       } catch (err) {
-          console.error(err);
           setAppState('bowlingQuotas');
       }
   }
@@ -493,7 +494,6 @@ function App() {
     if (isStarting) return; 
     setIsStarting(true);
     
-    // Clear out any old game data before sending to server
     setServerData(null);
     setCommentaryFeed([]);
     setPrevBalls(0);
@@ -564,7 +564,7 @@ function App() {
       return `${viewingScorecard.match_winner} Won the Match!`;
   }
 
-  // --- PERFECT MVP CALCULATOR (With Null Safety) ---
+  // --- PERFECT MVP CALCULATOR ---
   function computeMVP() {
       if (!viewingScorecard) return null;
       let playersPool = [];
@@ -931,7 +931,6 @@ function App() {
             </p>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Team 1 Batting */}
                 <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl shadow-inner">
                     <h3 className="font-black text-emerald-500 uppercase tracking-widest mb-4">{team1Name} Lineup</h3>
                     <div className="space-y-2">
@@ -956,7 +955,6 @@ function App() {
                     </div>
                 </div>
 
-                {/* Team 2 Batting */}
                 <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl shadow-inner">
                     <h3 className="font-black text-cyan-500 uppercase tracking-widest mb-4">{team2Name} Lineup</h3>
                     <div className="space-y-2">
@@ -1203,7 +1201,7 @@ function App() {
                     <div className="text-2xl font-black text-white mb-2">{tossWinnerTeam} won the toss</div>
                     <div className="text-slate-400 text-sm font-bold uppercase tracking-widest mb-10">and elected to <span className="text-emerald-400">{matchDecision}</span> first.</div>
                     <button disabled={isStarting} onClick={startServerMatch} className="bg-emerald-500 hover:bg-emerald-400 text-black font-black px-12 py-5 rounded-lg w-full text-sm uppercase tracking-widest transition-all shadow-[0_0_30px_rgba(16,185,129,0.3)]">
-                      {isStarting ? "Loading Game Engine..." : "Start Match"}
+                      {isStarting ? "Loading Match Engine..." : "Start Match"}
                     </button>
                 </div>
             )}
@@ -1213,11 +1211,12 @@ function App() {
         {/* --- 6. CRASH-PROOF LIVE MATCH SCREEN --- */}
         {appState === 'match' && (
           <>
+            {/* LOADING GATE PREVENTS WHITE SCREEN CRASHES */}
             {!serverData ? (
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center max-w-md mx-auto mt-10 shadow-2xl">
                     <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
-                    <h3 className="text-xl font-black text-white uppercase tracking-widest">Loading Match Arena...</h3>
-                    <p className="text-xs text-slate-500 font-mono mt-2 uppercase">Connecting to live physics engine</p>
+                    <h3 className="text-xl font-black text-white uppercase tracking-widest">Loading Match...</h3>
+                    <p className="text-xs text-slate-500 font-mono mt-2 uppercase">Preparing game data</p>
                 </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in relative">
@@ -1234,8 +1233,10 @@ function App() {
                                 <p className="text-[10px] text-slate-600 uppercase tracking-widest mt-3 font-bold">From {serverData?.max_balls / 6} Overs</p>
                             </div>
                             
+                            {/* PREVBALLS RESET HERE FIXES 2ND INNINGS AUDIO */}
                             <button onClick={() => { 
                                 setCommentaryFeed([]); 
+                                setPrevBalls(0);
                                 fetch(`http://127.0.0.1:8000/matches/${serverId}/start-inn2`, { method: 'POST' }); 
                                 setIsPlaying(true); 
                             }} className="bg-emerald-500 text-black px-12 py-5 font-black uppercase tracking-widest text-sm rounded-lg shadow-[0_0_30px_rgba(16,185,129,0.3)] hover:bg-emerald-400 transition-all w-full">
@@ -1397,7 +1398,7 @@ function App() {
           <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 p-10 rounded-2xl shadow-2xl mt-10 animate-fade-in">
              <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-6">
                  <h2 className="text-2xl font-black uppercase tracking-widest text-white">Match Result</h2>
-                 <button onClick={() => setAppState('dashboard')} className="text-emerald-500 text-xs font-bold uppercase tracking-widest bg-emerald-500/10 px-4 py-2 rounded transition-colors">← Dashboard</button>
+                 <button onClick={() => setAppState('dashboard')} className="text-emerald-500 text-xs font-bold uppercase tracking-widest hover:underline bg-emerald-500/10 px-4 py-2 rounded transition-colors">← Dashboard</button>
              </div>
 
              <div className="text-center mb-10 bg-slate-950 p-8 rounded-xl border border-slate-800 shadow-inner">
